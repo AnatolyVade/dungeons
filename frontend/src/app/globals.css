@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-gold: #d4a843;
+    --color-blood: #8b1a1a;
+    --color-parchment: #f4e4c1;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgb(17, 24, 39);
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(75, 85, 99);
+  border-radius: 3px;
+}
+
+/* Narrative text animation */
+.narrative-fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* HP bar colors */
+.hp-bar-high { background: #22c55e; }
+.hp-bar-mid { background: #eab308; }
+.hp-bar-low { background: #ef4444; }
