@@ -170,6 +170,7 @@ export default function PlayPage() {
   if (!character) return null;
 
   const merchants = nearbyNpcs.filter((n) => n.is_merchant);
+  const nonMerchants = nearbyNpcs.filter((n) => !n.is_merchant);
 
   return (
     <main className="flex h-screen">
@@ -178,21 +179,12 @@ export default function PlayPage() {
         {/* Header */}
         <header className="flex items-center justify-between px-6 py-3 border-b border-gray-800 bg-gray-900">
           <div>
-            <h1 className="font-bold text-[var(--color-gold)]">
+            <h1 className="font-bold" style={{ color: "#d4a843" }}>
               {campaign?.name}
             </h1>
             <p className="text-xs text-gray-500">Turn {campaign?.turn_count}</p>
           </div>
           <div className="flex gap-2">
-            {merchants.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setShopNpc(m)}
-                className="text-xs px-3 py-1 bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/50 text-[var(--color-gold)] rounded hover:bg-[var(--color-gold)]/30 transition"
-              >
-                Shop: {m.name_ru || m.name}
-              </button>
-            ))}
             <button
               onClick={() => handleRest("short")}
               disabled={acting}
@@ -215,6 +207,35 @@ export default function PlayPage() {
             </button>
           </div>
         </header>
+
+        {/* Nearby NPCs bar */}
+        {nearbyNpcs.length > 0 && (
+          <div className="flex items-center gap-2 px-6 py-2 border-b border-gray-800 bg-gray-900/50 flex-wrap">
+            <span className="text-xs text-gray-500 mr-1">Nearby:</span>
+            {merchants.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setShopNpc(m)}
+                className="text-xs px-3 py-1 rounded transition"
+                style={{
+                  background: "rgba(212, 168, 67, 0.15)",
+                  border: "1px solid rgba(212, 168, 67, 0.4)",
+                  color: "#d4a843",
+                }}
+              >
+                🛒 {m.name_ru || m.name}
+              </button>
+            ))}
+            {nonMerchants.map((n) => (
+              <span
+                key={n.id}
+                className="text-xs px-3 py-1 bg-gray-800/50 border border-gray-700 text-gray-400 rounded"
+              >
+                {n.name_ru || n.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Error */}
         {error && (
