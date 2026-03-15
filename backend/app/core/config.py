@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     # App
     debug: bool = True
 
-    model_config = {"env_file": os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")}
+    model_config = {
+        "env_file": os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env"),
+        "extra": "ignore",
+    }
 
 
 @lru_cache()

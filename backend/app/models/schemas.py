@@ -128,3 +128,61 @@ class CombatActionRequest(BaseModel):
 # ── Rest ──
 class RestRequest(BaseModel):
     type: str = Field(..., pattern="^(short|long)$")
+
+
+# ── Shop ──
+class ShopItem(BaseModel):
+    item_template_id: str
+    name: str
+    name_ru: str | None = None
+    type: str
+    rarity: str
+    description_ru: str | None = None
+    base_price: int
+    effective_price: int
+    quantity: int
+    damage_dice: str | None = None
+    ac_bonus: int = 0
+
+
+class ShopResponse(BaseModel):
+    items: list[ShopItem]
+    merchant_name: str
+    merchant_name_ru: str | None = None
+    discount: int = 0
+    sell_multiplier: float = 0.5
+
+
+class BuyRequest(BaseModel):
+    item_template_id: str
+    quantity: int = 1
+    haggle_discount: int = Field(default=0, ge=0, le=30)
+
+
+class BuyResponse(BaseModel):
+    success: bool
+    gold_spent: int
+    new_gold: int
+    item_name: str = ""
+
+
+class SellRequest(BaseModel):
+    item_instance_id: str
+    quantity: int = 1
+
+
+class SellResponse(BaseModel):
+    success: bool
+    gold_earned: int
+    new_gold: int
+
+
+class HaggleRequest(BaseModel):
+    message: str
+
+
+class HaggleResponse(BaseModel):
+    dialogue: str
+    discount: int = 0
+    reputation_change: int = 0
+    new_reputation: int = 0

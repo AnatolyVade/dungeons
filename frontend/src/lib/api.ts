@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8019";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function getToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
@@ -112,6 +112,58 @@ export async function rest(campaignId: string, type: "short" | "long") {
   });
 }
 
+// ── Shop ──
+export async function getShop(campaignId: string, npcId: string) {
+  return apiFetch<ShopResponse>(`/api/campaigns/${campaignId}/npcs/${npcId}/shop`);
+}
+
+export async function buyItem(
+  campaignId: string,
+  npcId: string,
+  itemTemplateId: string,
+  quantity = 1,
+  haggleDiscount = 0
+) {
+  return apiFetch<BuyResponse>(
+    `/api/campaigns/${campaignId}/npcs/${npcId}/shop/buy`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        item_template_id: itemTemplateId,
+        quantity,
+        haggle_discount: haggleDiscount,
+      }),
+    }
+  );
+}
+
+export async function sellItem(
+  campaignId: string,
+  npcId: string,
+  itemInstanceId: string,
+  quantity = 1
+) {
+  return apiFetch<SellResponse>(
+    `/api/campaigns/${campaignId}/npcs/${npcId}/shop/sell`,
+    {
+      method: "POST",
+      body: JSON.stringify({ item_instance_id: itemInstanceId, quantity }),
+    }
+  );
+}
+
+export async function haggle(campaignId: string, npcId: string, message: string) {
+  return apiFetch<HaggleResponse>(
+    `/api/campaigns/${campaignId}/npcs/${npcId}/shop/haggle`,
+    { method: "POST", body: JSON.stringify({ message }) }
+  );
+}
+
+// ── NPCs ──
+export async function getNearbyNpcs(campaignId: string) {
+  return apiFetch<NPC[]>(`/api/campaigns/${campaignId}/npcs`);
+}
+
 // ── Types ──
 export interface Campaign {
   id: string;
@@ -188,4 +240,55 @@ export interface DMResponse {
   enemies: unknown;
   suggestions: string[];
   scene_image_url: string | null;
+}
+
+export interface ShopItem {
+  item_template_id: string;
+  name: string;
+  name_ru: string | null;
+  type: string;
+  rarity: string;
+  description_ru: string | null;
+  base_price: number;
+  effective_price: number;
+  quantity: number;
+  damage_dice: string | null;
+  ac_bonus: number;
+}
+
+export interface ShopResponse {
+  items: ShopItem[];
+  merchant_name: string;
+  merchant_name_ru: string | null;
+  discount: number;
+  sell_multiplier: number;
+}
+
+export interface BuyResponse {
+  success: boolean;
+  gold_spent: number;
+  new_gold: number;
+  item_name: string;
+}
+
+export interface SellResponse {
+  success: boolean;
+  gold_earned: number;
+  new_gold: number;
+}
+
+export interface HaggleResponse {
+  dialogue: string;
+  discount: number;
+  reputation_change: number;
+  new_reputation: number;
+}
+
+export interface NPC {
+  id: string;
+  name: string;
+  name_ru: string | null;
+  disposition: string;
+  is_merchant: boolean;
+  location: string;
 }

@@ -182,3 +182,48 @@ Respond with valid JSON only. No markdown. No backticks.
 - Reference the story so far for continuity."""
 
     return context, recent_chat
+
+
+def build_npc_context(npc: dict, character: dict) -> str:
+    """Build system prompt for NPC conversation (used for haggling and chat)."""
+    merchant_block = ""
+    if npc.get("is_merchant"):
+        inventory_text = json.dumps(npc.get("shop_inventory", []), ensure_ascii=False)
+        merchant_block = (
+            f"\nYou are a merchant. You can discuss prices and offer discounts.\n"
+            f"Your inventory: {inventory_text}\n"
+            f"You may offer a shop_discount (0-30) based on the player's persuasion.\n"
+            f"Be shrewd but fair. High charisma players or clever arguments earn bigger discounts."
+        )
+
+    hostility = ""
+    rep = npc.get("reputation", 0)
+    if rep < -30:
+        hostility = "\nBe hostile and unhelpful. Refuse discounts."
+    elif rep > 50:
+        hostility = "\nBe generous. Share secrets and tips. Offer good deals."
+
+    memories_text = json.dumps(npc.get("memories", [])[-10:], ensure_ascii=False)
+
+    return f"""You are {npc['name']}{', ' + npc.get('title', '') if npc.get('title') else ''}.
+Race: {npc.get('race', 'Unknown')} | Location: {npc.get('location', 'Unknown')}
+Personality: {npc.get('personality', 'Mysterious')}
+Backstory: {npc.get('backstory', 'Unknown')}
+Dialogue style: {npc.get('dialogue_style', 'Normal')}
+Disposition: {npc.get('disposition', 'neutral')} (reputation: {rep})
+
+Memories of this player:
+{memories_text}
+
+Speaking with: {character['name']}, Level {character['level']} {character['race']} {character['class']}
+{merchant_block}
+{hostility}
+
+Respond in Russian. Stay in character. 2-4 sentences.
+
+Respond as JSON only. No markdown. No backticks.
+{{"dialogue": "your response in Russian",
+  "reputation_change": 0,
+  "new_memory": null,
+  "quest_offered": null,
+  "shop_discount": 0}}"""

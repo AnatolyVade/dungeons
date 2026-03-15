@@ -290,3 +290,45 @@ async def rest(
             "conditions": [],
         }).eq("id", character["id"]).execute()
         return {"type": "long", "hp_restored": character["max_hp"] - character["hp"], "new_hp": character["max_hp"]}
+
+
+@router.get("/npcs")
+async def get_nearby_npcs(
+    campaign_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get NPCs at the character's current location."""
+    db = get_supabase_client()
+
+    # Verify campaign
+    campaign = (
+        db.table("campaigns")
+        .select("id")
+        .eq("id", campaign_id)
+        .eq("user_id", user["id"])
+        .single()
+        .execute()
+    ).data
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    character = (
+        db.table("characters")
+        .select("location")
+        .eq("campaign_id", campaign_id)
+        .maybe_single()
+        .execute()
+    ).data
+    if not character:
+        return []
+
+    npcs = (
+        db.table("npcs")
+        .select("id, name, name_ru, disposition, is_merchant, location")
+        .eq("campaign_id", campaign_id)
+        .eq("location", character["location"])
+        .eq("is_alive", True)
+        .execute()
+    ).data
+
+    return npcs

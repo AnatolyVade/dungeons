@@ -7,13 +7,16 @@ import {
   getCharacter,
   sendAction,
   rest,
+  getNearbyNpcs,
   isLoggedIn,
   type Character,
   type CampaignFull,
+  type NPC,
 } from "@/lib/api";
 import CharacterSidebar from "@/components/game/CharacterSidebar";
 import NarrativeLog, { type LogEntry } from "@/components/game/NarrativeLog";
 import ActionInput from "@/components/game/ActionInput";
+import ShopModal from "@/components/game/ShopModal";
 
 export default function PlayPage() {
   const { campaignId } = useParams<{ campaignId: string }>();
@@ -26,6 +29,24 @@ export default function PlayPage() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState("");
+
+  // NPCs & Shop
+  const [nearbyNpcs, setNearbyNpcs] = useState<NPC[]>([]);
+  const [shopNpc, setShopNpc] = useState<NPC | null>(null);
+
+  const refreshNpcs = useCallback(async () => {
+    try {
+      const npcs = await getNearbyNpcs(campaignId);
+      setNearbyNpcs(npcs);
+    } catch {
+      // silently fail
+    }
+  }, [campaignId]);
+
+  const refreshCharacter = useCallback(async () => {
+    const updatedChar = await getCharacter(campaignId);
+    setCharacter(updatedChar);
+  }, [campaignId]);
 
   // Load campaign and character
   useEffect(() => {
@@ -47,6 +68,9 @@ export default function PlayPage() {
         const char = await getCharacter(campaignId);
         setCharacter(char);
 
+        // Load nearby NPCs
+        await refreshNpcs();
+
         // If first turn, show intro prompt
         if (c.turn_count === 0) {
           setSuggestions([
@@ -63,7 +87,7 @@ export default function PlayPage() {
     }
 
     load();
-  }, [campaignId, router]);
+  }, [campaignId, router, refreshNpcs]);
 
   const handleAction = useCallback(
     async (action: string) => {
@@ -91,9 +115,9 @@ export default function PlayPage() {
         // Update suggestions
         setSuggestions(response.suggestions || []);
 
-        // Refresh character state
-        const updatedChar = await getCharacter(campaignId);
-        setCharacter(updatedChar);
+        // Refresh character state and nearby NPCs
+        await refreshCharacter();
+        await refreshNpcs();
 
         // Update campaign turn count locally
         setCampaign((prev) =>
@@ -101,13 +125,12 @@ export default function PlayPage() {
         );
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Action failed");
-        // Remove the player entry if action failed
         setEntries((prev) => prev.slice(0, -1));
       } finally {
         setActing(false);
       }
     },
-    [campaignId, acting]
+    [campaignId, acting, refreshCharacter, refreshNpcs]
   );
 
   const handleRest = useCallback(
@@ -126,15 +149,14 @@ export default function PlayPage() {
                 : `Долгий отдых. HP полностью восстановлено.`,
           },
         ]);
-        const updatedChar = await getCharacter(campaignId);
-        setCharacter(updatedChar);
+        await refreshCharacter();
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Rest failed");
       } finally {
         setActing(false);
       }
     },
-    [campaignId, acting]
+    [campaignId, acting, refreshCharacter]
   );
 
   if (loading) {
@@ -146,6 +168,8 @@ export default function PlayPage() {
   }
 
   if (!character) return null;
+
+  const merchants = nearbyNpcs.filter((n) => n.is_merchant);
 
   return (
     <main className="flex h-screen">
@@ -160,6 +184,15 @@ export default function PlayPage() {
             <p className="text-xs text-gray-500">Turn {campaign?.turn_count}</p>
           </div>
           <div className="flex gap-2">
+            {merchants.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setShopNpc(m)}
+                className="text-xs px-3 py-1 bg-[var(--color-gold)]/20 border border-[var(--color-gold)]/50 text-[var(--color-gold)] rounded hover:bg-[var(--color-gold)]/30 transition"
+              >
+                Shop: {m.name_ru || m.name}
+              </button>
+            ))}
             <button
               onClick={() => handleRest("short")}
               disabled={acting}
@@ -203,6 +236,18 @@ export default function PlayPage() {
 
       {/* Character sidebar */}
       <CharacterSidebar character={character} />
+
+      {/* Shop modal */}
+      {shopNpc && (
+        <ShopModal
+          campaignId={campaignId}
+          npcId={shopNpc.id}
+          npcName={shopNpc.name_ru || shopNpc.name}
+          character={character}
+          onClose={() => setShopNpc(null)}
+          onUpdate={refreshCharacter}
+        />
+      )}
     </main>
   );
 }

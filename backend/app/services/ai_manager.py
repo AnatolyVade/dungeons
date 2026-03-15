@@ -133,3 +133,41 @@ async def generate_image(prompt: str) -> str:
 
 def prompt_hash(prompt: str) -> str:
     return hashlib.sha256(prompt.encode()).hexdigest()
+
+
+async def generate_merchant_inventory(npc: dict) -> list[dict]:
+    """Generate themed inventory for a merchant NPC. Returns list of item template dicts."""
+    raw = await call_claude(
+        system=(
+            "You generate item inventories for D&D 5e merchant NPCs. "
+            "Return a JSON array of 6-10 items. Each item has: "
+            "name (English), name_ru (Russian), type (weapon|armor|consumable|material|scroll|misc), "
+            "rarity (common|uncommon|rare), value (gold pieces integer), "
+            "description_ru (short Russian description), "
+            "damage_dice (e.g. '1d8' for weapons, null otherwise), "
+            "ac_bonus (integer for armor, 0 otherwise), "
+            "slot (weapon|head|chest|legs|boots|offhand for equippable, null otherwise), "
+            "stackable (true for consumables/materials, false otherwise). "
+            "Match the merchant's personality and location. "
+            "Return JSON array only. No markdown."
+        ),
+        messages=[{
+            "role": "user",
+            "content": (
+                f"Merchant: {npc.get('name', 'Unknown')} ({npc.get('race', 'Human')})\n"
+                f"Personality: {npc.get('personality', 'Trader')}\n"
+                f"Location: {npc.get('location', 'Town')}, {npc.get('region', 'Unknown Region')}\n"
+                f"Generate their shop inventory."
+            ),
+        }],
+        max_tokens=1024,
+    )
+
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+    return json.loads(text)
