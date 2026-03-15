@@ -1,10 +1,13 @@
 """Auth routes — register, login, me."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.supabase import get_supabase_anon_client
 from app.core.auth import get_current_user
 from app.models.schemas import RegisterRequest, LoginRequest, AuthResponse
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -13,6 +16,8 @@ async def register(body: RegisterRequest):
     db = get_supabase_anon_client()
     try:
         result = db.auth.sign_up({"email": body.email, "password": body.password})
+        logger.info("sign_up result: user=%s, session=%s", result.user, bool(result.session))
+
         if not result.user:
             raise HTTPException(status_code=400, detail="Registration failed")
 
@@ -36,7 +41,12 @@ async def register(body: RegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.error("Registration error: %s (type: %s)", e, type(e).__name__)
+        detail = str(e)
+        # Extract message from Supabase AuthApiError
+        if hasattr(e, "message"):
+            detail = e.message
+        raise HTTPException(status_code=400, detail=detail)
 
 
 @router.post("/login", response_model=AuthResponse)
