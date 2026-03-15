@@ -15,10 +15,26 @@ async def register(body: RegisterRequest):
         result = db.auth.sign_up({"email": body.email, "password": body.password})
         if not result.user:
             raise HTTPException(status_code=400, detail="Registration failed")
+
+        # If email confirmation is enabled, session will be None.
+        # Auto-login after registration to get a session.
+        if not result.session:
+            login_result = db.auth.sign_in_with_password(
+                {"email": body.email, "password": body.password}
+            )
+            if not login_result.session:
+                raise HTTPException(status_code=400, detail="Registration succeeded but login failed")
+            return AuthResponse(
+                access_token=login_result.session.access_token,
+                user_id=str(login_result.user.id),
+            )
+
         return AuthResponse(
             access_token=result.session.access_token,
             user_id=str(result.user.id),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

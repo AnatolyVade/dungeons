@@ -1,13 +1,9 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    --color-gold: #d4a843;
-    --color-blood: #8b1a1a;
-    --color-parchment: #f4e4c1;
-  }
+@theme {
+  --color-gold: #d4a843;
+  --color-blood: #8b1a1a;
+  --color-parchment: #f4e4c1;
 }
 
 /* Scrollbar styling */
