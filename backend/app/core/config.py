@@ -13,9 +13,6 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
 
-    # Redis
-    redis_url: str = "redis://localhost:6379"
-
     # App
     debug: bool = True
 
