@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # AI
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    google_api_key: str = ""
+
+    # Media storage
+    media_dir: str = "/opt/projects/dungeons/media"
+    media_url_prefix: str = "/media"
 
     # App
     debug: bool = True

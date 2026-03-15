@@ -18,6 +18,7 @@ import CharacterSidebar from "@/components/game/CharacterSidebar";
 import NarrativeLog, { type LogEntry } from "@/components/game/NarrativeLog";
 import ActionInput from "@/components/game/ActionInput";
 import ShopModal from "@/components/game/ShopModal";
+import NpcModal from "@/components/game/NpcModal";
 
 export default function PlayPage() {
   const { campaignId } = useParams<{ campaignId: string }>();
@@ -34,6 +35,7 @@ export default function PlayPage() {
   // NPCs & Shop
   const [nearbyNpcs, setNearbyNpcs] = useState<NPC[]>([]);
   const [shopNpc, setShopNpc] = useState<NPC | null>(null);
+  const [chatNpc, setChatNpc] = useState<NPC | null>(null);
 
   const refreshNpcs = useCallback(async () => {
     try {
@@ -231,27 +233,35 @@ export default function PlayPage() {
         {nearbyNpcs.length > 0 && (
           <div className="flex items-center gap-2 px-6 py-2 border-b border-gray-800 bg-gray-900/50 flex-wrap">
             <span className="text-xs text-gray-500 mr-1">Nearby:</span>
-            {merchants.map((m) => (
+            {nearbyNpcs.map((n) => (
               <button
-                key={m.id}
-                onClick={() => setShopNpc(m)}
-                className="text-xs px-3 py-1 rounded transition"
-                style={{
-                  background: "rgba(212, 168, 67, 0.15)",
-                  border: "1px solid rgba(212, 168, 67, 0.4)",
-                  color: "#d4a843",
-                }}
-              >
-                🛒 {m.name_ru || m.name}
-              </button>
-            ))}
-            {nonMerchants.map((n) => (
-              <span
                 key={n.id}
-                className="text-xs px-3 py-1 bg-gray-800/50 border border-gray-700 text-gray-400 rounded"
+                onClick={() => setChatNpc(n)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1 rounded transition hover:brightness-110"
+                style={
+                  n.is_merchant
+                    ? {
+                        background: "rgba(212, 168, 67, 0.15)",
+                        border: "1px solid rgba(212, 168, 67, 0.4)",
+                        color: "#d4a843",
+                      }
+                    : {
+                        background: "rgba(55, 65, 81, 0.5)",
+                        border: "1px solid rgba(75, 85, 99, 1)",
+                        color: "#9ca3af",
+                      }
+                }
               >
+                {n.portrait_url ? (
+                  <img
+                    src={n.portrait_url}
+                    alt=""
+                    className="w-5 h-5 rounded-full object-cover"
+                  />
+                ) : null}
+                {n.is_merchant ? "🛒 " : ""}
                 {n.name_ru || n.name}
-              </span>
+              </button>
             ))}
           </div>
         )}
@@ -276,6 +286,19 @@ export default function PlayPage() {
 
       {/* Character sidebar */}
       <CharacterSidebar character={character} />
+
+      {/* NPC conversation modal */}
+      {chatNpc && (
+        <NpcModal
+          campaignId={campaignId}
+          npc={chatNpc}
+          onClose={() => setChatNpc(null)}
+          onOpenShop={() => {
+            setShopNpc(chatNpc);
+            setChatNpc(null);
+          }}
+        />
+      )}
 
       {/* Shop modal */}
       {shopNpc && (

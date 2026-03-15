@@ -171,6 +171,19 @@ export async function getNearbyNpcs(campaignId: string) {
   return apiFetch<NPC[]>(`/api/campaigns/${campaignId}/npcs`);
 }
 
+export async function chatWithNpc(campaignId: string, npcId: string, message: string) {
+  return apiFetch<NpcChatResponse>(
+    `/api/campaigns/${campaignId}/npcs/${npcId}/chat`,
+    { method: "POST", body: JSON.stringify({ message }) }
+  );
+}
+
+export async function getNpcPortrait(campaignId: string, npcId: string) {
+  return apiFetch<{ portrait_url: string | null }>(
+    `/api/campaigns/${campaignId}/npcs/${npcId}/portrait`
+  );
+}
+
 // ── Types ──
 export interface Campaign {
   id: string;
@@ -298,4 +311,15 @@ export interface NPC {
   disposition: string;
   is_merchant: boolean;
   location: string;
+  portrait_url: string | null;
+  personality: string | null;
+  race: string | null;
+  reputation: number;
+}
+
+export interface NpcChatResponse {
+  dialogue: string;
+  reputation_change: number;
+  new_reputation: number;
+  quest_offered: unknown | null;
 }

@@ -1,6 +1,8 @@
 """Game action routes — the core DM loop."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.supabase import get_supabase_client, maybe_single_data
@@ -9,6 +11,7 @@ from app.models.schemas import ActionRequest, RestRequest
 from app.services.context_manager import build_dm_context
 from app.services.ai_manager import call_dm
 from app.services.summarizer import maybe_summarize
+from app.services.image_generator import generate_location_image, generate_npc_portrait
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}", tags=["game"])
 
@@ -179,7 +182,7 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
                 }
                 raw_disp = disp_map.get(raw_disp, "neutral")
             try:
-                db.table("npcs").insert({
+                inserted = db.table("npcs").insert({
                     "campaign_id": campaign_id,
                     "name": npc_data.get("name", "Unknown"),
                     "name_ru": npc_data.get("name_ru", npc_data.get("name")),
@@ -190,6 +193,11 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
                     "disposition": raw_disp,
                     "is_merchant": npc_data.get("is_merchant", False),
                 }).execute()
+                # Generate portrait in background
+                if inserted.data:
+                    asyncio.create_task(
+                        generate_npc_portrait(campaign_id, inserted.data[0])
+                    )
             except Exception:
                 pass  # Don't crash the game if NPC insert fails
 
@@ -262,8 +270,23 @@ async def game_action(
         "content": dm_response.get("narrative", ""),
     }).execute()
 
+    # Check if location changed before applying state
+    old_location = character["location"]
+
     # Apply state changes
     await _apply_state_changes(db, campaign_id, character, dm_response)
+
+    # Generate scene image if location changed
+    new_location = dm_response.get("location")
+    if new_location and new_location != old_location:
+        scene_url = await generate_location_image(
+            campaign_id,
+            new_location,
+            dm_response.get("region", character.get("region", "")),
+            dm_response.get("narrative", ""),
+        )
+        if scene_url:
+            dm_response["scene_image_url"] = scene_url
 
     # Tier 3: maybe summarize
     await maybe_summarize(campaign_id)
@@ -335,7 +358,7 @@ async def get_nearby_npcs(
 
     npcs = (
         db.table("npcs")
-        .select("id, name, name_ru, disposition, is_merchant, location")
+        .select("id, name, name_ru, disposition, is_merchant, location, portrait_url, personality, race, reputation")
         .eq("campaign_id", campaign_id)
         .eq("location", character["location"])
         .eq("is_alive", True)
