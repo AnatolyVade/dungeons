@@ -343,3 +343,36 @@ async def get_nearby_npcs(
     ).data
 
     return npcs
+
+
+@router.get("/chat-history")
+async def get_chat_history(
+    campaign_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get DM chat history for the campaign."""
+    db = get_supabase_client()
+
+    # Verify campaign
+    campaign = (
+        db.table("campaigns")
+        .select("id")
+        .eq("id", campaign_id)
+        .eq("user_id", user["id"])
+        .single()
+        .execute()
+    ).data
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    messages = (
+        db.table("chat_history")
+        .select("role, content, created_at")
+        .eq("campaign_id", campaign_id)
+        .eq("context", "dm")
+        .eq("is_archived", False)
+        .order("created_at", desc=False)
+        .execute()
+    ).data
+
+    return messages

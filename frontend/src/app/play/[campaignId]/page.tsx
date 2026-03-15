@@ -8,6 +8,7 @@ import {
   sendAction,
   rest,
   getNearbyNpcs,
+  getChatHistory,
   isLoggedIn,
   type Character,
   type CampaignFull,
@@ -70,6 +71,24 @@ export default function PlayPage() {
 
         // Load nearby NPCs
         await refreshNpcs();
+
+        // Load chat history
+        try {
+          const history = await getChatHistory(campaignId);
+          const restored: LogEntry[] = [];
+          for (const msg of history) {
+            if (msg.role === "user") {
+              restored.push({ type: "player", text: msg.content });
+            } else {
+              restored.push({ type: "dm", text: msg.content });
+            }
+          }
+          if (restored.length > 0) {
+            setEntries(restored);
+          }
+        } catch {
+          // silently fail — not critical
+        }
 
         // If first turn, show intro prompt
         if (c.turn_count === 0) {

@@ -112,6 +112,13 @@ export async function rest(campaignId: string, type: "short" | "long") {
   });
 }
 
+// ── Chat History ──
+export async function getChatHistory(campaignId: string) {
+  return apiFetch<{ role: string; content: string; created_at: string }[]>(
+    `/api/campaigns/${campaignId}/chat-history`
+  );
+}
+
 // ── Shop ──
 export async function getShop(campaignId: string, npcId: string) {
   return apiFetch<ShopResponse>(`/api/campaigns/${campaignId}/npcs/${npcId}/shop`);
