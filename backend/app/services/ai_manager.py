@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
+import re
+
+logger = logging.getLogger(__name__)
 
 import anthropic
 from openai import AsyncOpenAI
@@ -37,6 +41,49 @@ async def call_claude(
     return response.content[0].text
 
 
+def _extract_json(raw: str) -> dict:
+    """Extract JSON from Claude's response, handling markdown wrapping and extra text."""
+    text = raw.strip()
+
+    # Strip markdown code fences
+    if "```" in text:
+        match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+        if match:
+            text = match.group(1).strip()
+
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try to find JSON object in the text
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    logger.error("Failed to parse AI response as JSON: %s", text[:500])
+    # Return a minimal valid response so the game doesn't crash
+    return {
+        "narrative": text or "The DM ponders silently...",
+        "hp_change": 0,
+        "xp_gain": 0,
+        "gold_change": 0,
+        "items_gained": [],
+        "items_lost": [],
+        "location": None,
+        "region": None,
+        "new_npcs": [],
+        "combat_status": "none",
+        "enemies": [],
+        "suggestions": [],
+        "dice_rolls": [],
+    }
+
+
 async def call_dm(system_prompt: str, recent_chat: list[dict], player_action: str) -> dict:
     """Call Claude as the DM and parse the JSON response."""
     messages = []
@@ -45,16 +92,7 @@ async def call_dm(system_prompt: str, recent_chat: list[dict], player_action: st
     messages.append({"role": "user", "content": player_action})
 
     raw = await call_claude(system=system_prompt, messages=messages)
-
-    # Parse JSON — strip any accidental markdown
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-
-    return json.loads(text)
+    return _extract_json(raw)
 
 
 async def call_npc(system_prompt: str, chat_history: list[dict], player_message: str) -> dict:
@@ -65,14 +103,7 @@ async def call_npc(system_prompt: str, chat_history: list[dict], player_message:
     messages.append({"role": "user", "content": player_message})
 
     raw = await call_claude(system=system_prompt, messages=messages, max_tokens=512)
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-
-    return json.loads(text)
+    return _extract_json(raw)
 
 
 async def summarize_history(chat_text: str) -> str:
