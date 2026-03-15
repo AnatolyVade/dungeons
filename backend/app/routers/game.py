@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.supabase import get_supabase_client
+from app.core.supabase import get_supabase_client, maybe_single_data
 from app.core.auth import get_current_user
 from app.models.schemas import ActionRequest, RestRequest
 from app.services.context_manager import build_dm_context
@@ -30,13 +30,11 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
         raise HTTPException(status_code=400, detail="Campaign is not active")
 
     # Character
-    character = (
+    character = maybe_single_data(
         db.table("characters")
         .select("*")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if not character:
         raise HTTPException(status_code=400, detail="No character — create one first")
     if not character["is_alive"]:
@@ -69,15 +67,12 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
     ).data
 
     # Active combat
-    combat_result = (
+    active_combat = maybe_single_data(
         db.table("combat_sessions")
         .select("*")
         .eq("campaign_id", campaign_id)
         .eq("status", "active")
-        .maybe_single()
-        .execute()
     )
-    active_combat = combat_result.data
 
     # Recent chat (last 16 messages = 8 exchanges)
     recent_chat = (
@@ -265,13 +260,11 @@ async def rest(
     """Short or long rest."""
     db = get_supabase_client()
 
-    character = (
+    character = maybe_single_data(
         db.table("characters")
         .select("*")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if not character:
         raise HTTPException(status_code=404, detail="No character")
 
@@ -312,13 +305,11 @@ async def get_nearby_npcs(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    character = (
+    character = maybe_single_data(
         db.table("characters")
         .select("location")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if not character:
         return []
 

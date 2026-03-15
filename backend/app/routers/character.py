@@ -1,7 +1,7 @@
 """Character routes — creation, stat rolling, retrieval."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.supabase import get_supabase_client
+from app.core.supabase import get_supabase_client, maybe_single_data
 from app.core.auth import get_current_user
 from app.models.schemas import CharacterCreate
 from app.services.combat import roll_stat_block, calculate_starting_hp, calculate_starting_ac
@@ -36,14 +36,12 @@ async def create_character(
         raise HTTPException(status_code=404, detail="Campaign not found")
 
     # Check no existing character
-    existing = (
+    existing = maybe_single_data(
         db.table("characters")
         .select("id")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
     )
-    if existing and existing.data:
+    if existing:
         raise HTTPException(status_code=400, detail="Character already exists for this campaign")
 
     hp = calculate_starting_hp(body.char_class, body.stats.con)
@@ -95,17 +93,15 @@ async def get_character(campaign_id: str, user: dict = Depends(get_current_user)
     if not campaign.data:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    char_result = (
+    char_data = maybe_single_data(
         db.table("characters")
         .select("*")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
     )
-    if not char_result.data:
+    if not char_data:
         raise HTTPException(status_code=404, detail="No character in this campaign")
 
-    character = char_result.data
+    character = char_data
 
     # Get equipment
     equip_result = (

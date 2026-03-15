@@ -1,7 +1,7 @@
 """Campaign routes — CRUD."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.supabase import get_supabase_client
+from app.core.supabase import get_supabase_client, maybe_single_data
 from app.core.auth import get_current_user
 from app.models.schemas import CampaignCreate
 
@@ -47,15 +47,13 @@ async def get_campaign(campaign_id: str, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=404, detail="Campaign not found")
 
     # Also fetch character
-    char_result = (
+    char_data = maybe_single_data(
         db.table("characters")
         .select("*")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
     )
     data = result.data
-    data["character"] = char_result.data
+    data["character"] = char_data
     return data
 
 

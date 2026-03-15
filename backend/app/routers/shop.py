@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.core.supabase import get_supabase_client
+from app.core.supabase import get_supabase_client, maybe_single_data
 from app.core.auth import get_current_user
 from app.models.schemas import (
     BuyRequest, BuyResponse, SellRequest, SellResponse,
@@ -46,13 +46,11 @@ async def _validate_merchant(db, campaign_id: str, npc_id: str, user_id: str):
     if not npc.get("is_alive", True):
         raise HTTPException(status_code=400, detail="This NPC is dead")
 
-    character = (
+    character = maybe_single_data(
         db.table("characters")
         .select("*")
         .eq("campaign_id", campaign_id)
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if not character:
         raise HTTPException(status_code=400, detail="No character in this campaign")
 
@@ -130,13 +128,11 @@ async def get_shop(
     for entry in shop_inventory:
         if entry.get("quantity", 0) <= 0:
             continue
-        template = (
+        template = maybe_single_data(
             db.table("item_templates")
             .select("*")
             .eq("id", entry["item_template_id"])
-            .maybe_single()
-            .execute()
-        ).data
+        )
         if not template:
             continue
 
@@ -247,25 +243,21 @@ async def sell_item(
     campaign, npc, character = await _validate_merchant(db, campaign_id, npc_id, user["id"])
 
     # Get item instance
-    item_instance = (
+    item_instance = maybe_single_data(
         db.table("item_instances")
         .select("*, item_templates(*)")
         .eq("id", body.item_instance_id)
         .eq("character_id", character["id"])
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if not item_instance:
         raise HTTPException(status_code=404, detail="Item not found in inventory")
 
     # Check not equipped
-    equipped = (
+    equipped = maybe_single_data(
         db.table("equipment_slots")
         .select("id")
         .eq("item_id", body.item_instance_id)
-        .maybe_single()
-        .execute()
-    ).data
+    )
     if equipped:
         raise HTTPException(status_code=400, detail="Unequip the item first")
 
