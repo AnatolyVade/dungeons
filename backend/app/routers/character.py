@@ -43,7 +43,7 @@ async def create_character(
         .maybe_single()
         .execute()
     )
-    if existing.data:
+    if existing and existing.data:
         raise HTTPException(status_code=400, detail="Character already exists for this campaign")
 
     hp = calculate_starting_hp(body.char_class, body.stats.con)
