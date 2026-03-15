@@ -160,6 +160,11 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
 
     # Create new NPCs
     for npc_data in dm_response.get("new_npcs", []):
+        if isinstance(npc_data, str):
+            # AI returned just a name string instead of a dict
+            npc_data = {"name": npc_data, "name_ru": npc_data}
+        if not isinstance(npc_data, dict):
+            continue
         if npc_data.get("name"):
             db.table("npcs").insert({
                 "campaign_id": campaign_id,
