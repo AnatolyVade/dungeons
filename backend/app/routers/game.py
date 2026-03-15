@@ -166,17 +166,32 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
         if not isinstance(npc_data, dict):
             continue
         if npc_data.get("name"):
-            db.table("npcs").insert({
-                "campaign_id": campaign_id,
-                "name": npc_data.get("name", "Unknown"),
-                "name_ru": npc_data.get("name_ru", npc_data.get("name")),
-                "race": npc_data.get("race", "Human"),
-                "location": dm_response.get("location", character["location"]),
-                "region": dm_response.get("region", character.get("region", "Unknown")),
-                "personality": npc_data.get("personality", "Mysterious stranger"),
-                "disposition": npc_data.get("disposition", "neutral"),
-                "is_merchant": npc_data.get("is_merchant", False),
-            }).execute()
+            # Sanitize disposition to match DB check constraint
+            valid_dispositions = {"friendly", "neutral", "unfriendly", "hostile"}
+            raw_disp = str(npc_data.get("disposition", "neutral")).lower()
+            if raw_disp not in valid_dispositions:
+                # Map common Russian/other values
+                disp_map = {
+                    "дружелюбная": "friendly", "дружелюбный": "friendly", "friendly": "friendly",
+                    "нейтральная": "neutral", "нейтральный": "neutral",
+                    "недружелюбная": "unfriendly", "недружелюбный": "unfriendly",
+                    "враждебная": "hostile", "враждебный": "hostile",
+                }
+                raw_disp = disp_map.get(raw_disp, "neutral")
+            try:
+                db.table("npcs").insert({
+                    "campaign_id": campaign_id,
+                    "name": npc_data.get("name", "Unknown"),
+                    "name_ru": npc_data.get("name_ru", npc_data.get("name")),
+                    "race": npc_data.get("race", "Human"),
+                    "location": dm_response.get("location", character["location"]),
+                    "region": dm_response.get("region", character.get("region", "Unknown")),
+                    "personality": npc_data.get("personality", "Mysterious stranger"),
+                    "disposition": raw_disp,
+                    "is_merchant": npc_data.get("is_merchant", False),
+                }).execute()
+            except Exception:
+                pass  # Don't crash the game if NPC insert fails
 
     # Handle combat initiation
     if dm_response.get("combat_status") == "started" and dm_response.get("enemies"):
