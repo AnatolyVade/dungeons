@@ -25,8 +25,8 @@ def _get_genai_client() -> genai.Client:
     return genai.Client(api_key=settings.google_api_key)
 
 
-def _context_hash(key: str) -> str:
-    return hashlib.sha256(key.encode()).hexdigest()[:16]
+def _prompt_hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _ensure_media_dir(campaign_id: str) -> str:
@@ -40,18 +40,18 @@ async def generate_and_save(
     prompt: str,
     campaign_id: str,
     image_type: str,
-    context_hash: str,
+    cache_key: str,
 ) -> str | None:
     """Generate image via Nano Banana 2, save to disk, cache in DB. Returns URL or None."""
     db = get_supabase_client()
     settings = get_settings()
+    p_hash = _prompt_hash(cache_key)
 
-    # Check cache
+    # Check cache (generated_images uses prompt_hash as unique key)
     cached = maybe_single_data(
         db.table("generated_images")
         .select("image_url")
-        .eq("campaign_id", campaign_id)
-        .eq("context_hash", context_hash)
+        .eq("prompt_hash", p_hash)
     )
     if cached:
         return cached["image_url"]
@@ -91,11 +91,10 @@ async def generate_and_save(
         # Cache in DB
         try:
             db.table("generated_images").insert({
-                "campaign_id": campaign_id,
+                "prompt_hash": p_hash,
                 "prompt": prompt[:500],
                 "image_url": image_url,
-                "image_type": image_type,
-                "context_hash": context_hash,
+                "type": image_type,
             }).execute()
         except Exception:
             pass  # DB cache failure shouldn't break anything
@@ -115,15 +114,14 @@ async def generate_location_image(
     narrative: str,
 ) -> str | None:
     """Generate a scene image for a location. Cached per location+campaign."""
-    ctx_hash = _context_hash(f"location:{campaign_id}:{location}")
+    cache_key = f"location:{campaign_id}:{location}"
 
     # Check cache first (fast path)
     db = get_supabase_client()
     cached = maybe_single_data(
         db.table("generated_images")
         .select("image_url")
-        .eq("campaign_id", campaign_id)
-        .eq("context_hash", ctx_hash)
+        .eq("prompt_hash", _prompt_hash(cache_key))
     )
     if cached:
         return cached["image_url"]
@@ -137,7 +135,22 @@ async def generate_location_image(
         f"medieval fantasy setting, moody atmosphere."
     )
 
-    return await generate_and_save(prompt, campaign_id, "scene", ctx_hash)
+    url = await generate_and_save(prompt, campaign_id, "scene", cache_key)
+
+    # Also save to locations table
+    if url:
+        try:
+            db.table("locations").upsert({
+                "campaign_id": campaign_id,
+                "name": location,
+                "region": region,
+                "image_url": url,
+                "image_prompt": prompt[:500],
+            }, on_conflict="campaign_id,name").execute()
+        except Exception:
+            pass
+
+    return url
 
 
 async def generate_npc_portrait(
@@ -149,7 +162,7 @@ async def generate_npc_portrait(
     if npc.get("portrait_url"):
         return npc["portrait_url"]
 
-    ctx_hash = _context_hash(f"npc:{npc['id']}")
+    cache_key = f"npc:{npc['id']}"
 
     prompt = (
         f"{STYLE_PREFIX}. "
@@ -163,7 +176,7 @@ async def generate_npc_portrait(
         f"medieval fantasy clothing appropriate to their role."
     )
 
-    url = await generate_and_save(prompt, campaign_id, "portrait", ctx_hash)
+    url = await generate_and_save(prompt, campaign_id, "portrait", cache_key)
 
     # Store on NPC record
     if url:
