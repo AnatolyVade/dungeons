@@ -73,7 +73,16 @@ export default function NpcModal({
           const q = result.quest_offered as { title_ru?: string; title?: string };
           setChatLog((prev) => [
             ...prev,
-            { role: "system", text: `📜 New Quest: ${q.title_ru || q.title || "Unknown"}` },
+            { role: "system", text: `📜 Новый квест: ${q.title_ru || q.title || "Unknown"}` },
+          ]);
+        }
+        // Show ability learned notification
+        if (result.taught && typeof result.taught === "object") {
+          const t = result.taught as { name_ru?: string; name?: string; gold_cost?: number };
+          const costText = t.gold_cost ? ` (-${t.gold_cost} золота)` : "";
+          setChatLog((prev) => [
+            ...prev,
+            { role: "system", text: `✨ Изучено: ${t.name_ru || t.name || "Новый навык"}${costText}` },
           ]);
         }
         setReputation(result.new_reputation);

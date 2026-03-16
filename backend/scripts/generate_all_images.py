@@ -44,17 +44,17 @@ async def main():
         )
         print(f"    -> {url}")
 
-        # Also insert into locations table
+        # Upsert into locations table
         try:
-            db.table("locations").insert({
+            db.table("locations").upsert({
                 "campaign_id": campaign_id,
                 "name": loc,
                 "region": region,
                 "image_url": url,
-            }).execute()
+            }, on_conflict="campaign_id,name").execute()
             print(f"    Saved to locations table")
         except Exception as e:
-            print(f"    Location table insert: {e}")
+            print(f"    Location table upsert: {e}")
 
     print("\nDone!")
 

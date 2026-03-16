@@ -64,7 +64,7 @@ async def create_character(
     }
 
     # Initialize spell data based on class
-    from app.data.spells import CLASS_SPELL_SLOTS, CLASS_STARTING_SPELLS
+    from app.data.spells import CLASS_SPELL_SLOTS, CLASS_STARTING_SPELLS, CLASS_PROFICIENCIES
     spell_slots = CLASS_SPELL_SLOTS.get(body.char_class, {}).get(1, {})
     known_spells = CLASS_STARTING_SPELLS.get(body.char_class, [])
     char_data["spell_slots"] = spell_slots
@@ -81,6 +81,21 @@ async def create_character(
             "character_id": character["id"],
             "slot": slot,
         }).execute()
+
+    # Seed class proficiencies and languages
+    class_profs = CLASS_PROFICIENCIES.get(body.char_class, [])
+    for prof in class_profs:
+        try:
+            db.table("character_abilities").insert({
+                "character_id": character["id"],
+                "category": prof["category"],
+                "name": prof["name"],
+                "name_ru": prof["name_ru"],
+                "source": f"Class:{body.char_class}",
+                "data": prof.get("data", {}),
+            }).execute()
+        except Exception:
+            pass  # Skip if duplicate
 
     return character
 

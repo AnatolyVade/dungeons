@@ -10,6 +10,7 @@ from app.services.combat import (
     CombatManager, roll_dice, saving_throw, calc_mod,
 )
 from app.services.ai_manager import call_claude
+from app.services.context_manager import compute_effective_stats
 from app.data.spells import SPELLS, CLASS_SPELL_ABILITY
 
 router = APIRouter(prefix="/api/campaigns/{campaign_id}/combat", tags=["combat"])
@@ -137,6 +138,18 @@ async def combat_action(
     """Execute a combat action: attack, spell, item, flee, or custom."""
     db = get_supabase_client()
     character, combat = _load_combat_state(db, campaign_id, user["id"])
+
+    # Apply equipment stat bonuses to character for combat calculations
+    equipment = (
+        db.table("equipment_slots")
+        .select("slot, item_instances(id, item_templates(stat_bonuses, ac_bonus))")
+        .eq("character_id", character["id"])
+        .not_.is_("item_id", "null")
+        .execute()
+    ).data
+    effective = compute_effective_stats(character, equipment)
+    for key in ("str", "dex", "con", "int_", "wis", "cha", "ac"):
+        character[key] = effective[key]
 
     enemies = combat["enemies"]
     combat_log = combat.get("log", [])

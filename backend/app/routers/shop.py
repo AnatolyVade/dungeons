@@ -57,10 +57,17 @@ async def _validate_merchant(db, campaign_id: str, npc_id: str, user_id: str):
     return campaign, npc, character
 
 
-async def _ensure_inventory(db, npc: dict) -> list[dict]:
-    """Generate merchant inventory if empty (lazy generation)."""
+async def _ensure_inventory(db, npc: dict, campaign_turn: int = 0) -> list[dict]:
+    """Generate merchant inventory if empty or stale (lazy generation with restock)."""
     shop_inventory = npc.get("shop_inventory") or []
-    if shop_inventory:
+    restock_turn = npc.get("shop_restock_turn", 0)
+    restock_interval = npc.get("shop_restock_interval", 50)
+
+    needs_restock = (
+        not shop_inventory
+        or (campaign_turn > 0 and campaign_turn - restock_turn >= restock_interval)
+    )
+    if not needs_restock:
         return shop_inventory
 
     # Generate inventory via Claude
@@ -92,7 +99,7 @@ async def _ensure_inventory(db, npc: dict) -> list[dict]:
     # Save to NPC
     db.table("npcs").update({
         "shop_inventory": shop_inventory,
-        "shop_restock_turn": 0,
+        "shop_restock_turn": campaign_turn,
     }).eq("id", npc["id"]).execute()
 
     return shop_inventory
@@ -114,7 +121,7 @@ async def get_shop(
     campaign, npc, character = await _validate_merchant(db, campaign_id, npc_id, user["id"])
 
     # Ensure inventory exists
-    shop_inventory = await _ensure_inventory(db, npc)
+    shop_inventory = await _ensure_inventory(db, npc, campaign.get("turn_count", 0))
 
     # Reload NPC in case inventory was just generated
     if not npc.get("shop_inventory"):

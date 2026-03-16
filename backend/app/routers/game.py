@@ -77,7 +77,7 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
         .eq("status", "active")
     )
 
-    # Recent chat (last 16 messages = 8 exchanges)
+    # Recent chat (last 24 messages = 12 exchanges)
     recent_chat = (
         db.table("chat_history")
         .select("role, content")
@@ -85,7 +85,7 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
         .eq("context", "dm")
         .eq("is_archived", False)
         .order("created_at", desc=True)
-        .limit(16)
+        .limit(24)
         .execute()
     ).data
     recent_chat = list(reversed(recent_chat))
@@ -109,7 +109,23 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
         .execute()
     ).data
 
-    return campaign, character, equipment, inventory, companions, active_combat, recent_chat, nearby_npcs, active_quests
+    # Character abilities
+    abilities = (
+        db.table("character_abilities")
+        .select("category, name, name_ru, description_ru, data, level")
+        .eq("character_id", character["id"])
+        .execute()
+    ).data
+
+    # Faction reputation
+    faction_rep = (
+        db.table("faction_reputation")
+        .select("faction, reputation")
+        .eq("campaign_id", campaign_id)
+        .execute()
+    ).data
+
+    return campaign, character, equipment, inventory, companions, active_combat, recent_chat, nearby_npcs, active_quests, abilities, faction_rep
 
 
 async def _apply_state_changes(db, campaign_id: str, character: dict, dm_response: dict):
@@ -332,6 +348,80 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
             except Exception:
                 pass
 
+    # Process abilities_gained
+    for ability in dm_response.get("abilities_gained", []):
+        if not isinstance(ability, dict) or not ability.get("name"):
+            continue
+        try:
+            ability_row = {
+                "character_id": character["id"],
+                "category": ability.get("category", "misc"),
+                "name": ability["name"],
+                "name_ru": ability.get("name_ru", ability["name"]),
+                "description_ru": ability.get("description_ru"),
+                "source": ability.get("source", f"Event:Turn {dm_response.get('turn', 0)}"),
+                "data": ability.get("data", {}),
+            }
+            db.table("character_abilities").upsert(
+                ability_row, on_conflict="character_id,category,name"
+            ).execute()
+            # If spell, also add to known_spells
+            if ability.get("category") == "spell" and ability.get("data", {}).get("spell_key"):
+                known = list(character.get("known_spells", []))
+                sk = ability["data"]["spell_key"]
+                if sk not in known:
+                    known.append(sk)
+                    db.table("characters").update({"known_spells": known}).eq("id", character["id"]).execute()
+        except Exception:
+            pass
+
+    # Process abilities_lost
+    for ability_name in dm_response.get("abilities_lost", []):
+        if isinstance(ability_name, str):
+            try:
+                db.table("character_abilities").delete().eq(
+                    "character_id", character["id"]
+                ).eq("name", ability_name).execute()
+            except Exception:
+                pass
+
+    # Process flags_set
+    flags_update = dm_response.get("flags_set")
+    if flags_update and isinstance(flags_update, dict) and flags_update:
+        try:
+            camp_data = db.table("campaigns").select("world_state").eq("id", campaign_id).single().execute().data
+            ws = camp_data.get("world_state", {})
+            ws_flags = ws.get("flags", {})
+            ws_flags.update(flags_update)
+            ws["flags"] = ws_flags
+            db.table("campaigns").update({"world_state": ws}).eq("id", campaign_id).execute()
+        except Exception:
+            pass
+
+    # Process faction_changes
+    for fc in dm_response.get("faction_changes", []):
+        if not isinstance(fc, dict) or not fc.get("faction"):
+            continue
+        try:
+            change = fc.get("change", 0)
+            existing = maybe_single_data(
+                db.table("faction_reputation")
+                .select("*")
+                .eq("campaign_id", campaign_id)
+                .eq("faction", fc["faction"])
+            )
+            if existing:
+                new_rep = max(-100, min(100, existing["reputation"] + change))
+                db.table("faction_reputation").update({"reputation": new_rep}).eq("id", existing["id"]).execute()
+            else:
+                db.table("faction_reputation").insert({
+                    "campaign_id": campaign_id,
+                    "faction": fc["faction"],
+                    "reputation": max(-100, min(100, change)),
+                }).execute()
+        except Exception:
+            pass
+
     # Increment turn count
     db.rpc("increment_turn", {"cid": campaign_id}).execute()
 
@@ -347,7 +437,8 @@ async def game_action(
 
     # Load state
     (campaign, character, equipment, inventory, companions,
-     active_combat, recent_chat, nearby_npcs, active_quests) = await _load_game_state(
+     active_combat, recent_chat, nearby_npcs, active_quests,
+     abilities, faction_rep) = await _load_game_state(
         db, campaign_id, user["id"]
     )
 
@@ -381,6 +472,8 @@ async def game_action(
         recent_chat=recent_chat,
         nearby_npcs=nearby_npcs,
         active_quests=active_quests,
+        abilities=abilities,
+        faction_rep=faction_rep,
     )
 
     # Call DM

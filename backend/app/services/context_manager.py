@@ -1,6 +1,6 @@
 """Tiered context manager for AI DM calls.
 
-Keeps context flat at ~6000 tokens regardless of campaign length.
+Keeps context flat at ~10000 tokens regardless of campaign length.
 """
 from __future__ import annotations
 
@@ -8,16 +8,47 @@ import json
 from typing import Any
 
 
-def format_character_sheet(char: dict) -> str:
+def compute_effective_stats(character: dict, equipment: list[dict]) -> dict:
+    """Compute effective stats with equipment bonuses applied."""
+    stats = {
+        "str": character["str"], "dex": character["dex"], "con": character["con"],
+        "int_": character["int_"], "wis": character["wis"], "cha": character["cha"],
+        "ac": character["ac"],
+    }
+    for eq in equipment:
+        inst = eq.get("item_instances") or {}
+        tmpl = inst.get("item_templates") or {} if isinstance(inst, dict) else {}
+        bonuses = tmpl.get("stat_bonuses") or {}
+        if isinstance(bonuses, dict):
+            for stat_key, bonus in bonuses.items():
+                if stat_key in stats and isinstance(bonus, (int, float)):
+                    stats[stat_key] += int(bonus)
+        if tmpl.get("ac_bonus"):
+            stats["ac"] += tmpl["ac_bonus"]
+    return stats
+
+
+def format_character_sheet(char: dict, effective: dict | None = None) -> str:
     """Format character data into a compact text block."""
     mod = lambda s: (s - 10) // 2
+    eff = effective or char
+
+    def stat_str(key, label):
+        base = char[key]
+        val = eff.get(key, base)
+        if val != base:
+            return f"{label}: {val}({mod(val):+d}) [base {base}]"
+        return f"{label}: {val}({mod(val):+d})"
+
+    ac_base = char["ac"]
+    ac_eff = eff.get("ac", ac_base)
+    ac_str = f"AC: {ac_eff}" + (f" [base {ac_base}]" if ac_eff != ac_base else "")
+
     return (
         f"{char['name']} — Level {char['level']} {char['race']} {char['class']}\n"
-        f"HP: {char['hp']}/{char['max_hp']} | AC: {char['ac']} | XP: {char['xp']}\n"
-        f"STR: {char['str']}({mod(char['str']):+d}) DEX: {char['dex']}({mod(char['dex']):+d}) "
-        f"CON: {char['con']}({mod(char['con']):+d})\n"
-        f"INT: {char['int_']}({mod(char['int_']):+d}) WIS: {char['wis']}({mod(char['wis']):+d}) "
-        f"CHA: {char['cha']}({mod(char['cha']):+d})\n"
+        f"HP: {char['hp']}/{char['max_hp']} | {ac_str} | XP: {char['xp']}\n"
+        f"{stat_str('str', 'STR')} {stat_str('dex', 'DEX')} {stat_str('con', 'CON')}\n"
+        f"{stat_str('int_', 'INT')} {stat_str('wis', 'WIS')} {stat_str('cha', 'CHA')}\n"
         f"Gold: {char['gold']} | Conditions: {', '.join(char.get('conditions', [])) or 'None'}"
     )
 
@@ -71,6 +102,32 @@ def format_spells(character: dict) -> str:
     return f"Slots: {slot_text}\nKnown: {', '.join(spell_names)}"
 
 
+def format_abilities(abilities: list[dict]) -> str:
+    """Format character abilities into compact text by category."""
+    if not abilities:
+        return "None"
+    by_cat: dict[str, list[str]] = {}
+    for a in abilities:
+        cat = a.get("category", "misc")
+        by_cat.setdefault(cat, []).append(a.get("name_ru", a["name"]))
+    cat_labels = {
+        "proficiency": "Prof", "language": "Lang", "recipe": "Recipes",
+        "technique": "Tech", "lore": "Lore", "feat": "Feats",
+        "spell": "Learned Spells", "misc": "Other",
+    }
+    lines = []
+    for cat, names in by_cat.items():
+        lines.append(f"{cat_labels.get(cat, cat)}: {', '.join(names)}")
+    return " | ".join(lines)
+
+
+def format_factions(factions: list[dict]) -> str:
+    """Format faction reputation."""
+    if not factions:
+        return "None"
+    return ", ".join(f"{f['faction']}({f['reputation']:+d})" for f in factions)
+
+
 def format_companions(companions: list[dict]) -> str:
     if not companions:
         return "None"
@@ -103,7 +160,8 @@ def format_nearby_npcs(npcs: list[dict]) -> str:
     lines = []
     for n in npcs:
         merchant = " [MERCHANT]" if n.get("is_merchant") else ""
-        lines.append(f"{n.get('name_ru') or n['name']} ({n.get('disposition', 'neutral')}){merchant}")
+        faction = f" [{n['faction']}]" if n.get("faction") else ""
+        lines.append(f"{n.get('name_ru') or n['name']} ({n.get('disposition', 'neutral')}){merchant}{faction}")
     return ", ".join(lines)
 
 
@@ -138,8 +196,13 @@ async def build_dm_context(
     recent_chat: list[dict],
     nearby_npcs: list[dict],
     active_quests: list[dict],
+    abilities: list[dict] | None = None,
+    faction_rep: list[dict] | None = None,
 ) -> tuple[str, list[dict]]:
     """Build the full DM system prompt from tiered context."""
+
+    # Effective stats with equipment bonuses
+    effective = compute_effective_stats(character, equipment)
 
     # Tier 3: Summaries
     world_state = campaign.get("world_state", {})
@@ -162,10 +225,11 @@ ALL narration, dialogue, item names, location names, NPC speech in Russian.
 JSON keys stay in English. suggested_actions in Russian.
 
 === CHARACTER ===
-{format_character_sheet(character)}
+{format_character_sheet(character, effective)}
 Equipment: {format_equipment(equipment)}
 Inventory: {format_inventory(inventory)}
 Spells: {format_spells(character)}
+Abilities: {format_abilities(abilities or [])}
 
 === COMPANIONS ===
 {format_companions(companions)}
@@ -182,6 +246,7 @@ Nearby NPCs: {format_nearby_npcs(nearby_npcs)}
 
 === WORLD STATE ===
 Flags: {json.dumps(flags)}
+Factions: {format_factions(faction_rep or [])}
 Visited: {", ".join(visited[-20:])}
 Turn: {campaign.get('turn_count', 0)}
 {combat_block}
@@ -203,11 +268,23 @@ Respond with valid JSON only. No markdown. No backticks.
   "conditions_gained": [],
   "conditions_lost": [],
   "quest_update": null,
+  "abilities_gained": [],
+  "abilities_lost": [],
+  "flags_set": {{}},
+  "faction_changes": [],
   "suggestions": ["Action 1 in Russian", "Action 2", "Action 3"]
 }}
 
 quest_update format (when player completes a quest objective):
 {{"title": "quest title", "objective_completed": "objective text"}}
+
+abilities_gained format (when character learns something new from events, books, training):
+[{{"category": "proficiency|language|recipe|technique|lore|feat|spell|misc", "name": "english_key", "name_ru": "Название", "description_ru": "Описание", "data": {{}}}}]
+abilities_lost: list ability names when character loses knowledge (curse, etc).
+
+faction_changes format: [{{"faction": "Faction Name", "change": -10}}]
+
+flags_set: set world state flags when important events happen (door opened, boss defeated, secret discovered, etc).
 
 items_gained: include full item data when player finds loot, receives rewards, or picks up items.
 items_lost: list item names when player loses, uses, or gives away items.
@@ -227,12 +304,18 @@ conditions: poisoned, stunned, blinded, frightened, charmed, paralyzed, prone, r
 - Vary encounters: combat, puzzles, traps, social, exploration.
 - Reference the story so far for continuity.
 - Apply conditions via conditions_gained when relevant (poison traps, fear effects, etc).
-- When a quest objective is completed, set quest_update with quest title and completed objective text."""
+- When a quest objective is completed, set quest_update with quest title and completed objective text.
+- Character abilities (proficiencies, recipes, languages, lore) are listed above. Reference them when relevant.
+- When the character learns something new (from books, events, training, discoveries), add it to abilities_gained with the appropriate category.
+- When proficiency is relevant to an action, apply advantage or appropriate bonus.
+- Item stat bonuses are already factored into effective stats shown above.
+- Set flags_set for important world state changes (doors unlocked, bosses killed, secrets found).
+- Use faction_changes when actions affect faction standing (helping/attacking faction members, completing faction quests)."""
 
     return context, recent_chat
 
 
-def build_npc_context(npc: dict, character: dict) -> str:
+def build_npc_context(npc: dict, character: dict, abilities: list[dict] | None = None) -> str:
     """Build system prompt for NPC conversation (used for haggling and chat)."""
     merchant_block = ""
     if npc.get("is_merchant"):
@@ -253,6 +336,11 @@ def build_npc_context(npc: dict, character: dict) -> str:
 
     memories_text = json.dumps(npc.get("memories", [])[-10:], ensure_ascii=False)
 
+    abilities_text = ""
+    if abilities:
+        known_names = [a.get("name_ru", a["name"]) for a in abilities[:20]]
+        abilities_text = f"\nPlayer already knows: {', '.join(known_names)}"
+
     return f"""You are {npc['name']}{', ' + npc.get('title', '') if npc.get('title') else ''}.
 Race: {npc.get('race', 'Unknown')} | Location: {npc.get('location', 'Unknown')}
 Personality: {npc.get('personality', 'Mysterious')}
@@ -264,6 +352,7 @@ Memories of this player:
 {memories_text}
 
 Speaking with: {character['name']}, Level {character['level']} {character['race']} {character['class']}
+{abilities_text}
 {merchant_block}
 {hostility}
 
@@ -274,7 +363,17 @@ Respond as JSON only. No markdown. No backticks.
   "reputation_change": 0,
   "new_memory": null,
   "quest_offered": null,
-  "shop_discount": 0}}
+  "shop_discount": 0,
+  "taught": null,
+  "secret_shared": null}}
 
 quest_offered format (only when NPC naturally wants to offer a quest):
-{{"title": "quest title", "title_ru": "название квеста", "description": "description", "description_ru": "описание", "objectives": [{{"text": "objective text", "completed": false}}], "rewards": {{"xp": 100, "gold": 50}}}}"""
+{{"title": "quest title", "title_ru": "название квеста", "description": "description", "description_ru": "описание", "objectives": [{{"text": "objective text", "completed": false}}], "rewards": {{"xp": 100, "gold": 50}}}}
+
+taught format (when NPC teaches something and it makes sense for this character):
+{{"category": "proficiency|language|recipe|technique|lore|feat|spell|misc", "name": "english_key", "name_ru": "Название", "description_ru": "Краткое описание", "data": {{}}, "gold_cost": 0}}
+Only teach what your character would realistically know. Charge a fair price (5-50 gold).
+Do NOT teach if the player already knows it (check their known abilities above).
+
+secret_shared format (when NPC reveals important information the DM should know):
+{{"text": "the secret", "flag_key": "flag_name", "flag_value": true}}"""

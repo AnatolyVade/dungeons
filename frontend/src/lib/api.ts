@@ -402,11 +402,20 @@ export interface NPC {
   reputation: number;
 }
 
+export interface TaughtAbility {
+  category: string;
+  name: string;
+  name_ru: string;
+  description_ru?: string;
+  gold_cost?: number;
+}
+
 export interface NpcChatResponse {
   dialogue: string;
   reputation_change: number;
   new_reputation: number;
   quest_offered: QuestOffered | null;
+  taught: TaughtAbility | null;
 }
 
 export interface QuestOffered {

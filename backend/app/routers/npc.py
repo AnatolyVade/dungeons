@@ -59,6 +59,14 @@ async def chat_with_npc(
     if not character:
         raise HTTPException(status_code=400, detail="No character")
 
+    # Load character abilities for NPC context
+    char_abilities = (
+        db.table("character_abilities")
+        .select("category, name, name_ru")
+        .eq("character_id", character["id"])
+        .execute()
+    ).data
+
     # Load chat history for this NPC
     chat_context = f"npc_{npc_id}"
     chat_result = (
@@ -74,7 +82,7 @@ async def chat_with_npc(
     chat_history = list(reversed(chat_result.data))
 
     # Build context and call Claude as NPC
-    system_prompt = build_npc_context(npc, character)
+    system_prompt = build_npc_context(npc, character, abilities=char_abilities)
     response = await call_npc(system_prompt, chat_history, body.message)
 
     # Save chat
@@ -132,11 +140,83 @@ async def chat_with_npc(
         except Exception:
             pass  # Don't crash if quest insert fails
 
+    # Handle taught ability
+    taught = response.get("taught")
+    taught_result = None
+    if taught and isinstance(taught, dict) and taught.get("name"):
+        gold_cost = taught.get("gold_cost", 0)
+        can_learn = True
+        if gold_cost > 0:
+            if character["gold"] >= gold_cost:
+                new_gold = character["gold"] - gold_cost
+                db.table("characters").update({"gold": new_gold}).eq("id", character["id"]).execute()
+            else:
+                can_learn = False
+
+        if can_learn:
+            try:
+                db.table("character_abilities").upsert({
+                    "character_id": character["id"],
+                    "category": taught.get("category", "misc"),
+                    "name": taught["name"],
+                    "name_ru": taught.get("name_ru", taught["name"]),
+                    "description_ru": taught.get("description_ru"),
+                    "source": f"NPC:{npc['name']}",
+                    "data": taught.get("data", {}),
+                }, on_conflict="character_id,category,name").execute()
+                taught_result = taught
+
+                # If spell, also add to known_spells
+                if taught.get("category") == "spell" and taught.get("data", {}).get("spell_key"):
+                    known = list(character.get("known_spells", []))
+                    sk = taught["data"]["spell_key"]
+                    if sk not in known:
+                        known.append(sk)
+                        db.table("characters").update({"known_spells": known}).eq("id", character["id"]).execute()
+            except Exception:
+                pass
+
+    # Handle secret shared (sets world flags)
+    secret = response.get("secret_shared")
+    if secret and isinstance(secret, dict) and secret.get("flag_key"):
+        try:
+            camp_data = db.table("campaigns").select("world_state").eq("id", campaign_id).single().execute().data
+            ws = camp_data.get("world_state", {})
+            flags = ws.get("flags", {})
+            flags[secret["flag_key"]] = secret.get("flag_value", True)
+            ws["flags"] = flags
+            db.table("campaigns").update({"world_state": ws}).eq("id", campaign_id).execute()
+        except Exception:
+            pass
+
+    # Propagate faction reputation
+    if npc.get("faction") and rep_change != 0:
+        try:
+            from app.core.supabase import maybe_single_data as _ms
+            existing = _ms(
+                db.table("faction_reputation")
+                .select("*")
+                .eq("campaign_id", campaign_id)
+                .eq("faction", npc["faction"])
+            )
+            if existing:
+                new_frep = max(-100, min(100, existing["reputation"] + rep_change))
+                db.table("faction_reputation").update({"reputation": new_frep}).eq("id", existing["id"]).execute()
+            else:
+                db.table("faction_reputation").insert({
+                    "campaign_id": campaign_id,
+                    "faction": npc["faction"],
+                    "reputation": max(-100, min(100, rep_change)),
+                }).execute()
+        except Exception:
+            pass
+
     return {
         "dialogue": response.get("dialogue", "..."),
         "reputation_change": rep_change,
         "new_reputation": new_rep,
         "quest_offered": quest_offered,
+        "taught": taught_result,
     }
 
 
