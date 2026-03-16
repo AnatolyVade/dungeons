@@ -155,13 +155,51 @@ def format_quests(quests: list[dict]) -> str:
 
 
 def format_nearby_npcs(npcs: list[dict]) -> str:
+    """Format nearby NPCs with rich detail so DM knows who they are."""
     if not npcs:
         return "None nearby"
     lines = []
     for n in npcs:
-        merchant = " [MERCHANT]" if n.get("is_merchant") else ""
-        faction = f" [{n['faction']}]" if n.get("faction") else ""
-        lines.append(f"{n.get('name_ru') or n['name']} ({n.get('disposition', 'neutral')}){merchant}{faction}")
+        tags = []
+        if n.get("is_merchant"):
+            tags.append("MERCHANT")
+        if n.get("faction"):
+            tags.append(n["faction"])
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        name = n.get("name_ru") or n["name"]
+        race = n.get("race", "")
+        disp = n.get("disposition", "neutral")
+        personality = n.get("personality") or ""
+        backstory = n.get("backstory") or ""
+
+        line = f"• {name} ({race}, {disp}){tag_str}"
+        if personality and personality != "Mysterious stranger":
+            line += f" — {personality}"
+        if backstory:
+            # Truncate backstory to ~100 chars for context budget
+            bs = backstory[:100] + "..." if len(backstory) > 100 else backstory
+            line += f" | {bs}"
+
+        # Include last 2 memories for continuity
+        memories = n.get("memories") or []
+        if memories:
+            recent = memories[-2:]
+            line += f" | Помнит: {'; '.join(str(m) for m in recent)}"
+
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def format_known_npcs(npcs: list[dict]) -> str:
+    """Compact list of NPCs in other locations so DM doesn't recreate them."""
+    if not npcs:
+        return "None"
+    lines = []
+    for n in npcs:
+        name = n.get("name_ru") or n.get("name", "?")
+        loc = n.get("location", "?")
+        merchant = " [M]" if n.get("is_merchant") else ""
+        lines.append(f"{name}@{loc}{merchant}")
     return ", ".join(lines)
 
 
@@ -195,7 +233,8 @@ async def build_dm_context(
     active_combat: dict | None,
     recent_chat: list[dict],
     nearby_npcs: list[dict],
-    active_quests: list[dict],
+    all_other_npcs: list[dict] | None = None,
+    active_quests: list[dict] | None = None,
     abilities: list[dict] | None = None,
     faction_rep: list[dict] | None = None,
 ) -> tuple[str, list[dict]]:
@@ -242,7 +281,11 @@ Abilities: {format_abilities(abilities or [])}
 
 === CURRENT LOCATION ===
 {character.get('location', 'Unknown')} (Region: {character.get('region', 'Starting Region')})
-Nearby NPCs: {format_nearby_npcs(nearby_npcs)}
+
+NPCs here:
+{format_nearby_npcs(nearby_npcs)}
+
+NPCs elsewhere (DO NOT recreate these): {format_known_npcs(all_other_npcs or [])}
 
 === WORLD STATE ===
 Flags: {json.dumps(flags)}
@@ -262,7 +305,7 @@ Respond with valid JSON only. No markdown. No backticks.
   "items_lost": ["item name"],
   "location": "Current Location",
   "region": "Current Region",
-  "new_npcs": [],
+  "new_npcs": [{{"name": "Name", "name_ru": "Имя", "race": "Human", "personality": "краткое описание личности и роли", "backstory": "1-2 предложения о прошлом и роли в мире", "disposition": "neutral", "is_merchant": false}}],
   "combat_status": "none",
   "enemies": null,
   "conditions_gained": [],
@@ -298,7 +341,10 @@ conditions: poisoned, stunned, blinded, frightened, charmed, paralyzed, prone, r
 - HP 0 = death. Make it dramatic.
 - Reward XP (25-100 for encounters, 10-25 for roleplay).
 - Drop loot from enemies via items_gained. Vary rarity. Include item type, value, and slot when applicable.
-- NPCs have distinct personalities. Let player converse freely.
+- NPCs have distinct personalities, roles, and backstories. NEVER confuse one NPC with another.
+- When creating new NPCs via new_npcs, ALWAYS include personality (their role and character) and backstory (1-2 sentences).
+- NEVER recreate an NPC that already exists (check "NPCs elsewhere" list above). Use existing NPCs by name.
+- When referencing an NPC in narrative, stay consistent with their established personality and role.
 - Consequences matter. The world remembers.
 - Create quest hooks from NPC interactions naturally.
 - Vary encounters: combat, puzzles, traps, social, exploration.

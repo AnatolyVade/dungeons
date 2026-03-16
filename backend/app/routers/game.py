@@ -90,13 +90,23 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
     ).data
     recent_chat = list(reversed(recent_chat))
 
-    # Nearby NPCs
+    # Nearby NPCs (full detail for DM context)
     nearby_npcs = (
         db.table("npcs")
-        .select("name, name_ru, disposition, is_merchant, reputation")
+        .select("name, name_ru, race, personality, backstory, disposition, is_merchant, reputation, faction, memories")
         .eq("campaign_id", campaign_id)
         .eq("location", character["location"])
         .eq("is_alive", True)
+        .execute()
+    ).data
+
+    # All other campaign NPCs (compact, so DM knows who exists elsewhere)
+    all_other_npcs = (
+        db.table("npcs")
+        .select("name_ru, location, is_merchant, disposition")
+        .eq("campaign_id", campaign_id)
+        .eq("is_alive", True)
+        .neq("location", character["location"])
         .execute()
     ).data
 
@@ -125,7 +135,7 @@ async def _load_game_state(db, campaign_id: str, user_id: str):
         .execute()
     ).data
 
-    return campaign, character, equipment, inventory, companions, active_combat, recent_chat, nearby_npcs, active_quests, abilities, faction_rep
+    return campaign, character, equipment, inventory, companions, active_combat, recent_chat, nearby_npcs, all_other_npcs, active_quests, abilities, faction_rep
 
 
 async def _apply_state_changes(db, campaign_id: str, character: dict, dm_response: dict):
@@ -275,9 +285,12 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
                     "race": npc_data.get("race", "Human"),
                     "location": dm_response.get("location", character["location"]),
                     "region": dm_response.get("region", character.get("region", "Unknown")),
-                    "personality": npc_data.get("personality", "Mysterious stranger"),
+                    "personality": npc_data.get("personality") or "Местный житель",
+                    "backstory": npc_data.get("backstory"),
+                    "dialogue_style": npc_data.get("dialogue_style"),
                     "disposition": raw_disp,
                     "is_merchant": npc_data.get("is_merchant", False),
+                    "faction": npc_data.get("faction"),
                 }).execute()
                 # Generate portrait in background
                 if inserted.data:
@@ -437,8 +450,8 @@ async def game_action(
 
     # Load state
     (campaign, character, equipment, inventory, companions,
-     active_combat, recent_chat, nearby_npcs, active_quests,
-     abilities, faction_rep) = await _load_game_state(
+     active_combat, recent_chat, nearby_npcs, all_other_npcs,
+     active_quests, abilities, faction_rep) = await _load_game_state(
         db, campaign_id, user["id"]
     )
 
@@ -471,6 +484,7 @@ async def game_action(
         active_combat=active_combat,
         recent_chat=recent_chat,
         nearby_npcs=nearby_npcs,
+        all_other_npcs=all_other_npcs,
         active_quests=active_quests,
         abilities=abilities,
         faction_rep=faction_rep,
