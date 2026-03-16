@@ -68,6 +68,14 @@ export default function NpcModal({
           ...prev,
           { role: "npc", text: result.dialogue },
         ]);
+        // Show quest notification if offered
+        if (result.quest_offered && typeof result.quest_offered === "object") {
+          const q = result.quest_offered as { title_ru?: string; title?: string };
+          setChatLog((prev) => [
+            ...prev,
+            { role: "system", text: `📜 New Quest: ${q.title_ru || q.title || "Unknown"}` },
+          ]);
+        }
         setReputation(result.new_reputation);
         // Update disposition based on reputation
         if (result.new_reputation > 50) setDisposition("friendly");
@@ -167,6 +175,8 @@ export default function NpcModal({
               className={
                 entry.role === "player"
                   ? "ml-8 bg-gray-800/50 rounded-lg p-3 border-l-2 border-blue-500"
+                  : entry.role === "system"
+                  ? "mx-4 bg-yellow-900/20 rounded-lg p-3 border-l-2 border-yellow-600 text-center"
                   : "mr-8 bg-gray-800 rounded-lg p-3 border-l-2"
               }
               style={
@@ -175,7 +185,7 @@ export default function NpcModal({
                   : undefined
               }
             >
-              <p className="text-sm">{entry.text}</p>
+              <p className={`text-sm ${entry.role === "system" ? "text-yellow-300 font-medium" : ""}`}>{entry.text}</p>
             </div>
           ))}
         </div>

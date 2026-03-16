@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 # Load .env from project root
 load_dotenv("../.env")
 
-from app.routers import auth, campaigns, character, game, shop, npc
+from app.routers import auth, campaigns, character, game, shop, npc, inventory, combat
 
 app = FastAPI(title="Realms of Fate", version="0.1.0")
 
@@ -24,6 +24,8 @@ app.include_router(character.router)
 app.include_router(game.router)
 app.include_router(shop.router)
 app.include_router(npc.router)
+app.include_router(inventory.router)
+app.include_router(combat.router)
 
 
 @app.get("/health")

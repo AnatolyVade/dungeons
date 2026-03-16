@@ -114,11 +114,29 @@ async def chat_with_npc(
 
     db.table("npcs").update(npc_updates).eq("id", npc_id).execute()
 
+    # Save quest if NPC offered one
+    quest_offered = response.get("quest_offered")
+    if quest_offered and isinstance(quest_offered, dict) and quest_offered.get("title"):
+        try:
+            db.table("quests").insert({
+                "campaign_id": campaign_id,
+                "title": quest_offered.get("title", "Unknown Quest"),
+                "title_ru": quest_offered.get("title_ru", quest_offered.get("title")),
+                "description": quest_offered.get("description", ""),
+                "description_ru": quest_offered.get("description_ru", ""),
+                "objectives": quest_offered.get("objectives", []),
+                "rewards": quest_offered.get("rewards", {}),
+                "giver_npc_id": npc_id,
+                "status": "active",
+            }).execute()
+        except Exception:
+            pass  # Don't crash if quest insert fails
+
     return {
         "dialogue": response.get("dialogue", "..."),
         "reputation_change": rep_change,
         "new_reputation": new_rep,
-        "quest_offered": response.get("quest_offered"),
+        "quest_offered": quest_offered,
     }
 
 

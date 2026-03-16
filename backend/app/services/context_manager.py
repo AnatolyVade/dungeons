@@ -25,15 +25,50 @@ def format_character_sheet(char: dict) -> str:
 def format_equipment(equipment: list[dict]) -> str:
     if not equipment:
         return "None equipped"
-    lines = [f"[{e['slot']}] {e.get('name', 'Unknown')}" for e in equipment]
+    lines = []
+    for e in equipment:
+        inst = e.get("item_instances") or {}
+        tmpl = inst.get("item_templates") or {} if isinstance(inst, dict) else {}
+        name = inst.get("custom_name") or tmpl.get("name_ru") or tmpl.get("name") or "Unknown"
+        extra = ""
+        if tmpl.get("damage_dice"):
+            extra += f" ({tmpl['damage_dice']})"
+        if tmpl.get("ac_bonus"):
+            extra += f" (+{tmpl['ac_bonus']} AC)"
+        lines.append(f"[{e['slot']}] {name}{extra}")
     return ", ".join(lines)
 
 
 def format_inventory(inventory: list[dict]) -> str:
     if not inventory:
         return "Empty"
-    items = [f"{i.get('name', '?')} x{i.get('quantity', 1)}" for i in inventory]
+    items = []
+    for i in inventory:
+        tmpl = i.get("item_templates") or {}
+        name = i.get("custom_name") or tmpl.get("name_ru") or tmpl.get("name") or "?"
+        items.append(f"{name} x{i.get('quantity', 1)}")
     return ", ".join(items)
+
+
+def format_spells(character: dict) -> str:
+    """Format known spells and available spell slots."""
+    known = character.get("known_spells", [])
+    if not known:
+        return "No spells"
+    from app.data.spells import SPELLS
+    slots = character.get("spell_slots", {})
+    max_slots = character.get("max_spell_slots", {})
+    slot_parts = []
+    for k in sorted(max_slots.keys(), key=lambda x: int(x)):
+        slot_parts.append(f"Lv{k}: {slots.get(k, 0)}/{max_slots.get(k, 0)}")
+    slot_text = ", ".join(slot_parts) if slot_parts else "None"
+    spell_names = []
+    for s in known:
+        sp = SPELLS.get(s, {})
+        name = sp.get("name_ru", s)
+        lvl = sp.get("level", 0)
+        spell_names.append(f"{name}(Lv{lvl})")
+    return f"Slots: {slot_text}\nKnown: {', '.join(spell_names)}"
 
 
 def format_companions(companions: list[dict]) -> str:
@@ -130,6 +165,7 @@ JSON keys stay in English. suggested_actions in Russian.
 {format_character_sheet(character)}
 Equipment: {format_equipment(equipment)}
 Inventory: {format_inventory(inventory)}
+Spells: {format_spells(character)}
 
 === COMPANIONS ===
 {format_companions(companions)}
@@ -157,15 +193,25 @@ Respond with valid JSON only. No markdown. No backticks.
   "hp_change": 0,
   "xp_gain": 0,
   "gold_change": 0,
-  "items_gained": [],
-  "items_lost": [],
+  "items_gained": [{{"name": "Item Name", "name_ru": "Название", "type": "weapon|armor|consumable|material|quest|scroll|misc", "rarity": "common", "value": 10, "damage_dice": null, "ac_bonus": 0, "slot": null}}],
+  "items_lost": ["item name"],
   "location": "Current Location",
   "region": "Current Region",
   "new_npcs": [],
   "combat_status": "none",
   "enemies": null,
+  "conditions_gained": [],
+  "conditions_lost": [],
+  "quest_update": null,
   "suggestions": ["Action 1 in Russian", "Action 2", "Action 3"]
 }}
+
+quest_update format (when player completes a quest objective):
+{{"title": "quest title", "objective_completed": "objective text"}}
+
+items_gained: include full item data when player finds loot, receives rewards, or picks up items.
+items_lost: list item names when player loses, uses, or gives away items.
+conditions: poisoned, stunned, blinded, frightened, charmed, paralyzed, prone, restrained, exhausted.
 
 === DM RULES ===
 - Open world. No linear path. Player goes wherever they want.
@@ -174,12 +220,14 @@ Respond with valid JSON only. No markdown. No backticks.
 - Combat is dangerous. Enemies attack back. Track HP.
 - HP 0 = death. Make it dramatic.
 - Reward XP (25-100 for encounters, 10-25 for roleplay).
-- Drop loot from enemies. Vary rarity.
+- Drop loot from enemies via items_gained. Vary rarity. Include item type, value, and slot when applicable.
 - NPCs have distinct personalities. Let player converse freely.
 - Consequences matter. The world remembers.
 - Create quest hooks from NPC interactions naturally.
 - Vary encounters: combat, puzzles, traps, social, exploration.
-- Reference the story so far for continuity."""
+- Reference the story so far for continuity.
+- Apply conditions via conditions_gained when relevant (poison traps, fear effects, etc).
+- When a quest objective is completed, set quest_update with quest title and completed objective text."""
 
     return context, recent_chat
 
@@ -226,4 +274,7 @@ Respond as JSON only. No markdown. No backticks.
   "reputation_change": 0,
   "new_memory": null,
   "quest_offered": null,
-  "shop_discount": 0}}"""
+  "shop_discount": 0}}
+
+quest_offered format (only when NPC naturally wants to offer a quest):
+{{"title": "quest title", "title_ru": "название квеста", "description": "description", "description_ru": "описание", "objectives": [{{"text": "objective text", "completed": false}}], "rewards": {{"xp": 100, "gold": 50}}}}"""

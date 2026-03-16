@@ -186,3 +186,31 @@ class HaggleResponse(BaseModel):
     discount: int = 0
     reputation_change: int = 0
     new_reputation: int = 0
+
+
+# ── Inventory ──
+class EquipRequest(BaseModel):
+    item_instance_id: str
+    slot: str = Field(..., pattern="^(head|chest|legs|boots|weapon|offhand|ring_1|ring_2|amulet)$")
+
+
+class UnequipRequest(BaseModel):
+    slot: str = Field(..., pattern="^(head|chest|legs|boots|weapon|offhand|ring_1|ring_2|amulet)$")
+
+
+class DropRequest(BaseModel):
+    item_instance_id: str
+
+
+# ── Combat Response ──
+class CombatActionResponse(BaseModel):
+    narrative: str
+    combat_status: str  # ongoing, victory, defeat, fled
+    player_action: dict[str, Any] | None = None
+    enemy_actions: list[dict[str, Any]] = []
+    enemies: list[dict[str, Any]] = []
+    round: int = 1
+    character_hp: int = 0
+    xp_gain: int = 0
+    gold_change: int = 0
+    items_gained: list[dict[str, Any]] = []

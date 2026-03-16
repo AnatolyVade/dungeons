@@ -184,6 +184,45 @@ export async function getNpcPortrait(campaignId: string, npcId: string) {
   );
 }
 
+// ── Inventory ──
+export async function equipItem(campaignId: string, itemInstanceId: string, slot: string) {
+  return apiFetch<{ success: boolean; slot: string; item_name: string }>(
+    `/api/campaigns/${campaignId}/inventory/equip`,
+    { method: "POST", body: JSON.stringify({ item_instance_id: itemInstanceId, slot }) }
+  );
+}
+
+export async function unequipItem(campaignId: string, slot: string) {
+  return apiFetch<{ success: boolean; slot: string }>(
+    `/api/campaigns/${campaignId}/inventory/unequip`,
+    { method: "POST", body: JSON.stringify({ slot }) }
+  );
+}
+
+export async function dropItem(campaignId: string, itemInstanceId: string) {
+  return apiFetch<{ success: boolean }>(
+    `/api/campaigns/${campaignId}/inventory/drop`,
+    { method: "POST", body: JSON.stringify({ item_instance_id: itemInstanceId }) }
+  );
+}
+
+// ── Combat ──
+export async function getCombatStatus(campaignId: string) {
+  return apiFetch<CombatStatus | null>(`/api/campaigns/${campaignId}/combat/status`);
+}
+
+export async function combatAction(campaignId: string, action: string, details = "") {
+  return apiFetch<CombatActionResponse>(
+    `/api/campaigns/${campaignId}/combat/action`,
+    { method: "POST", body: JSON.stringify({ action, details }) }
+  );
+}
+
+// ── Quests ──
+export async function getQuests(campaignId: string) {
+  return apiFetch<Quest[]>(`/api/campaigns/${campaignId}/quests`);
+}
+
 // ── Types ──
 export interface Campaign {
   id: string;
@@ -197,6 +236,46 @@ export interface Campaign {
 export interface CampaignFull extends Campaign {
   character: Character | null;
   world_state: Record<string, unknown>;
+}
+
+export interface ItemTemplate {
+  name: string;
+  name_ru: string | null;
+  type: string;
+  rarity: string;
+  value?: number;
+  damage_dice: string | null;
+  ac_bonus: number;
+  stat_bonuses?: Record<string, number>;
+  description_ru?: string | null;
+  slot?: string | null;
+}
+
+export interface EquipmentSlot {
+  slot: string;
+  item_id: string | null;
+  item_instances: {
+    id: string;
+    quantity: number;
+    custom_name: string | null;
+    item_templates: ItemTemplate;
+  } | null;
+}
+
+export interface InventoryItem {
+  id: string;
+  quantity: number;
+  custom_name: string | null;
+  custom_name_ru: string | null;
+  is_identified: boolean;
+  item_templates: {
+    name: string;
+    name_ru: string | null;
+    type: string;
+    rarity: string;
+    value: number;
+    description_ru: string | null;
+  };
 }
 
 export interface Character {
@@ -221,8 +300,11 @@ export interface Character {
   conditions: string[];
   portrait_url: string | null;
   is_alive: boolean;
-  equipment?: unknown[];
-  inventory?: unknown[];
+  spell_slots?: Record<string, number>;
+  max_spell_slots?: Record<string, number>;
+  known_spells?: string[];
+  equipment?: EquipmentSlot[];
+  inventory?: InventoryItem[];
 }
 
 export interface CharacterCreateData {
@@ -260,6 +342,9 @@ export interface DMResponse {
   enemies: unknown;
   suggestions: string[];
   scene_image_url: string | null;
+  conditions_gained?: string[];
+  conditions_lost?: string[];
+  quest_update?: { title: string; objective_completed: string } | null;
 }
 
 export interface ShopItem {
@@ -321,5 +406,60 @@ export interface NpcChatResponse {
   dialogue: string;
   reputation_change: number;
   new_reputation: number;
-  quest_offered: unknown | null;
+  quest_offered: QuestOffered | null;
+}
+
+export interface QuestOffered {
+  title: string;
+  title_ru?: string;
+  description?: string;
+  description_ru?: string;
+  objectives?: { text: string; completed: boolean }[];
+  rewards?: { xp?: number; gold?: number };
+}
+
+export interface CombatStatus {
+  id: string;
+  enemies: CombatEnemy[];
+  round: number;
+  log: unknown[];
+  status: string;
+}
+
+export interface CombatEnemy {
+  name: string;
+  hp: number;
+  max_hp: number;
+  ac: number;
+  attack_dice?: string;
+  attack_stat?: number;
+  xp_value?: number;
+}
+
+export interface CombatActionResponse {
+  narrative: string;
+  combat_status: string;
+  player_action: Record<string, unknown> | null;
+  enemy_actions: Record<string, unknown>[];
+  enemies: CombatEnemy[];
+  round: number;
+  character_hp: number;
+  xp_gain: number;
+  gold_change: number;
+  items_gained: Record<string, unknown>[];
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  title_ru: string | null;
+  description: string | null;
+  description_ru: string | null;
+  type: string;
+  status: string;
+  objectives: { text: string; completed: boolean }[];
+  rewards: { xp?: number; gold?: number };
+  giver_npc_id: string | null;
+  created_at: string;
+  completed_at: string | null;
 }

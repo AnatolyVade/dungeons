@@ -9,16 +9,22 @@ import {
   rest,
   getNearbyNpcs,
   getChatHistory,
+  getCombatStatus,
   isLoggedIn,
   type Character,
   type CampaignFull,
   type NPC,
+  type CombatStatus,
+  type CombatActionResponse,
 } from "@/lib/api";
 import CharacterSidebar from "@/components/game/CharacterSidebar";
 import NarrativeLog, { type LogEntry } from "@/components/game/NarrativeLog";
 import ActionInput from "@/components/game/ActionInput";
 import ShopModal from "@/components/game/ShopModal";
 import NpcModal from "@/components/game/NpcModal";
+import InventoryModal from "@/components/game/InventoryModal";
+import QuestJournal from "@/components/game/QuestJournal";
+import CombatPanel from "@/components/game/CombatPanel";
 
 export default function PlayPage() {
   const { campaignId } = useParams<{ campaignId: string }>();
@@ -37,6 +43,13 @@ export default function PlayPage() {
   const [shopNpc, setShopNpc] = useState<NPC | null>(null);
   const [chatNpc, setChatNpc] = useState<NPC | null>(null);
 
+  // Modals
+  const [showInventory, setShowInventory] = useState(false);
+  const [showQuests, setShowQuests] = useState(false);
+
+  // Combat
+  const [combat, setCombat] = useState<CombatStatus | null>(null);
+
   const refreshNpcs = useCallback(async () => {
     try {
       const npcs = await getNearbyNpcs(campaignId);
@@ -49,6 +62,15 @@ export default function PlayPage() {
   const refreshCharacter = useCallback(async () => {
     const updatedChar = await getCharacter(campaignId);
     setCharacter(updatedChar);
+  }, [campaignId]);
+
+  const checkCombat = useCallback(async () => {
+    try {
+      const status = await getCombatStatus(campaignId);
+      setCombat(status);
+    } catch {
+      setCombat(null);
+    }
   }, [campaignId]);
 
   // Load campaign and character
@@ -73,6 +95,9 @@ export default function PlayPage() {
 
         // Load nearby NPCs
         await refreshNpcs();
+
+        // Check for active combat
+        await checkCombat();
 
         // Load chat history
         try {
@@ -108,7 +133,7 @@ export default function PlayPage() {
     }
 
     load();
-  }, [campaignId, router, refreshNpcs]);
+  }, [campaignId, router, refreshNpcs, checkCombat]);
 
   const handleAction = useCallback(
     async (action: string) => {
@@ -121,6 +146,11 @@ export default function PlayPage() {
 
       try {
         const response = await sendAction(campaignId, action);
+
+        // Check if combat started
+        if (response.combat_status === "started" || response.combat_status === "ongoing") {
+          await checkCombat();
+        }
 
         // Add DM entry
         setEntries((prev) => [
@@ -151,7 +181,7 @@ export default function PlayPage() {
         setActing(false);
       }
     },
-    [campaignId, acting, refreshCharacter, refreshNpcs]
+    [campaignId, acting, refreshCharacter, refreshNpcs, checkCombat]
   );
 
   const handleRest = useCallback(
@@ -180,6 +210,39 @@ export default function PlayPage() {
     [campaignId, acting, refreshCharacter]
   );
 
+  const handleCombatUpdate = useCallback(
+    async (response: CombatActionResponse) => {
+      setEntries((prev) => [
+        ...prev,
+        { type: "dm", text: response.narrative },
+      ]);
+      await refreshCharacter();
+    },
+    [refreshCharacter]
+  );
+
+  const handleCombatEnd = useCallback(
+    async (status: string) => {
+      setCombat(null);
+      await refreshCharacter();
+      await refreshNpcs();
+      if (status === "victory") {
+        setSuggestions([
+          "Осмотреть тела врагов",
+          "Осмотреться вокруг",
+          "Отдохнуть",
+        ]);
+      } else if (status === "fled") {
+        setSuggestions([
+          "Бежать дальше",
+          "Осмотреться вокруг",
+          "Спрятаться",
+        ]);
+      }
+    },
+    [refreshCharacter, refreshNpcs]
+  );
+
   if (loading) {
     return (
       <main className="flex items-center justify-center min-h-screen">
@@ -189,9 +252,6 @@ export default function PlayPage() {
   }
 
   if (!character) return null;
-
-  const merchants = nearbyNpcs.filter((n) => n.is_merchant);
-  const nonMerchants = nearbyNpcs.filter((n) => !n.is_merchant);
 
   return (
     <main className="flex h-screen">
@@ -207,15 +267,27 @@ export default function PlayPage() {
           </div>
           <div className="flex gap-2">
             <button
+              onClick={() => setShowQuests(true)}
+              className="text-xs px-3 py-1 bg-gray-800 border border-gray-700 rounded hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] transition disabled:opacity-50"
+            >
+              Quests
+            </button>
+            <button
+              onClick={() => setShowInventory(true)}
+              className="text-xs px-3 py-1 bg-gray-800 border border-gray-700 rounded hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] transition disabled:opacity-50"
+            >
+              Inventory
+            </button>
+            <button
               onClick={() => handleRest("short")}
-              disabled={acting}
+              disabled={acting || !!combat}
               className="text-xs px-3 py-1 bg-gray-800 border border-gray-700 rounded hover:border-gray-600 disabled:opacity-50"
             >
               Short Rest
             </button>
             <button
               onClick={() => handleRest("long")}
-              disabled={acting}
+              disabled={acting || !!combat}
               className="text-xs px-3 py-1 bg-gray-800 border border-gray-700 rounded hover:border-gray-600 disabled:opacity-50"
             >
               Long Rest
@@ -276,12 +348,24 @@ export default function PlayPage() {
         {/* Narrative log */}
         <NarrativeLog entries={entries} />
 
-        {/* Action input */}
-        <ActionInput
-          onSubmit={handleAction}
-          suggestions={suggestions}
-          disabled={acting || !character.is_alive}
-        />
+        {/* Combat panel or Action input */}
+        {combat ? (
+          <CombatPanel
+            campaignId={campaignId}
+            enemies={combat.enemies}
+            round={combat.round}
+            knownSpells={character.known_spells}
+            spellSlots={character.spell_slots}
+            onCombatUpdate={handleCombatUpdate}
+            onCombatEnd={handleCombatEnd}
+          />
+        ) : (
+          <ActionInput
+            onSubmit={handleAction}
+            suggestions={suggestions}
+            disabled={acting || !character.is_alive}
+          />
+        )}
       </div>
 
       {/* Character sidebar */}
@@ -309,6 +393,24 @@ export default function PlayPage() {
           character={character}
           onClose={() => setShopNpc(null)}
           onUpdate={refreshCharacter}
+        />
+      )}
+
+      {/* Inventory modal */}
+      {showInventory && (
+        <InventoryModal
+          campaignId={campaignId}
+          character={character}
+          onClose={() => setShowInventory(false)}
+          onUpdate={refreshCharacter}
+        />
+      )}
+
+      {/* Quest journal */}
+      {showQuests && (
+        <QuestJournal
+          campaignId={campaignId}
+          onClose={() => setShowQuests(false)}
         />
       )}
     </main>

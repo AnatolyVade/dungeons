@@ -63,6 +63,14 @@ async def create_character(
         "cha": body.stats.cha,
     }
 
+    # Initialize spell data based on class
+    from app.data.spells import CLASS_SPELL_SLOTS, CLASS_STARTING_SPELLS
+    spell_slots = CLASS_SPELL_SLOTS.get(body.char_class, {}).get(1, {})
+    known_spells = CLASS_STARTING_SPELLS.get(body.char_class, [])
+    char_data["spell_slots"] = spell_slots
+    char_data["max_spell_slots"] = spell_slots
+    char_data["known_spells"] = known_spells
+
     result = db.table("characters").insert(char_data).execute()
     character = result.data[0]
 

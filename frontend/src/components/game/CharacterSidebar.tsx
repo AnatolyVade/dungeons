@@ -93,6 +93,26 @@ export default function CharacterSidebar({ character }: { character: Character }
         ))}
       </div>
 
+      {/* Spell Slots */}
+      {character.max_spell_slots && Object.keys(character.max_spell_slots).length > 0 && (
+        <div>
+          <span className="text-xs text-gray-500">Spell Slots</span>
+          <div className="flex gap-2 mt-1">
+            {Object.entries(character.max_spell_slots).map(([level, max]) => {
+              const current = character.spell_slots?.[level] ?? 0;
+              return (
+                <div key={level} className="bg-gray-800 rounded px-2 py-1 text-center">
+                  <div className="text-[10px] text-gray-500">Lv{level}</div>
+                  <div className={`text-sm font-bold ${current > 0 ? "text-purple-400" : "text-gray-600"}`}>
+                    {current}/{max}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* AC & Gold */}
       <div className="flex justify-between text-sm">
         <div className="bg-gray-800 rounded px-3 py-2 text-center flex-1 mr-2">

@@ -137,10 +137,30 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
             hp_gain = (hit_die // 2 + 1) + calc_mod(character["con"])
             char_updates["max_hp"] = character["max_hp"] + hp_gain
             char_updates["hp"] = character.get("hp", character["max_hp"]) + hp_gain
+            # Update spell slots on level up
+            from app.data.spells import CLASS_SPELL_SLOTS
+            new_slots = CLASS_SPELL_SLOTS.get(character["class"], {}).get(new_level, {})
+            if new_slots:
+                char_updates["max_spell_slots"] = new_slots
+                char_updates["spell_slots"] = new_slots
 
     # Gold change
     if dm_response.get("gold_change", 0) != 0:
         char_updates["gold"] = max(0, character["gold"] + dm_response["gold_change"])
+
+    # Conditions
+    current_conditions = list(character.get("conditions", []) or [])
+    conditions_changed = False
+    for c in dm_response.get("conditions_gained", []):
+        if isinstance(c, str) and c not in current_conditions:
+            current_conditions.append(c)
+            conditions_changed = True
+    for c in dm_response.get("conditions_lost", []):
+        if isinstance(c, str) and c in current_conditions:
+            current_conditions.remove(c)
+            conditions_changed = True
+    if conditions_changed:
+        char_updates["conditions"] = current_conditions
 
     # Location change
     if dm_response.get("location") and dm_response["location"] != character["location"]:
@@ -160,6 +180,56 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
     # Apply character updates
     if char_updates:
         db.table("characters").update(char_updates).eq("id", character["id"]).execute()
+
+    # Process items_gained
+    for item_data in dm_response.get("items_gained", []):
+        if not isinstance(item_data, dict) or not item_data.get("name"):
+            continue
+        try:
+            # Create item template
+            template = db.table("item_templates").insert({
+                "name": item_data.get("name", "Unknown"),
+                "name_ru": item_data.get("name_ru", item_data.get("name")),
+                "type": item_data.get("type", "misc"),
+                "rarity": item_data.get("rarity", "common"),
+                "value": item_data.get("value", 5),
+                "damage_dice": item_data.get("damage_dice"),
+                "ac_bonus": item_data.get("ac_bonus", 0),
+                "slot": item_data.get("slot"),
+                "stackable": item_data.get("stackable", False),
+            }).execute().data[0]
+            # Create item instance for character
+            db.table("item_instances").insert({
+                "template_id": template["id"],
+                "character_id": character["id"],
+                "quantity": item_data.get("quantity", 1),
+            }).execute()
+        except Exception:
+            pass  # Don't crash the game if item insert fails
+
+    # Process items_lost
+    for item_name in dm_response.get("items_lost", []):
+        if not isinstance(item_name, str):
+            continue
+        try:
+            instances = (
+                db.table("item_instances")
+                .select("id, item_templates(name, name_ru)")
+                .eq("character_id", character["id"])
+                .execute()
+            ).data
+            for inst in instances:
+                tmpl = inst.get("item_templates") or {}
+                if tmpl.get("name") == item_name or tmpl.get("name_ru") == item_name:
+                    # Check not equipped
+                    equipped = maybe_single_data(
+                        db.table("equipment_slots").select("id").eq("item_id", inst["id"])
+                    )
+                    if not equipped:
+                        db.table("item_instances").delete().eq("id", inst["id"]).execute()
+                    break
+        except Exception:
+            pass
 
     # Create new NPCs
     for npc_data in dm_response.get("new_npcs", []):
@@ -221,6 +291,47 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
             "turn_order": [],
         }).execute()
 
+    # Process quest_update
+    quest_update = dm_response.get("quest_update")
+    if quest_update and isinstance(quest_update, dict):
+        title = quest_update.get("title", "")
+        obj_text = quest_update.get("objective_completed", "")
+        if title and obj_text:
+            try:
+                quests = (
+                    db.table("quests")
+                    .select("*")
+                    .eq("campaign_id", campaign_id)
+                    .eq("status", "active")
+                    .execute()
+                ).data
+                for quest in quests:
+                    if title.lower() in (quest.get("title", "").lower() + " " + (quest.get("title_ru") or "").lower()):
+                        objectives = quest.get("objectives", [])
+                        all_done = True
+                        for obj in objectives:
+                            if obj_text.lower() in obj.get("text", "").lower():
+                                obj["completed"] = True
+                            if not obj.get("completed"):
+                                all_done = False
+                        updates = {"objectives": objectives}
+                        if all_done:
+                            updates["status"] = "completed"
+                            updates["completed_at"] = "now()"
+                            # Grant quest rewards
+                            rewards = quest.get("rewards", {})
+                            reward_updates = {}
+                            if rewards.get("xp"):
+                                reward_updates["xp"] = character.get("xp", 0) + rewards["xp"]
+                            if rewards.get("gold"):
+                                reward_updates["gold"] = character.get("gold", 0) + rewards["gold"]
+                            if reward_updates:
+                                db.table("characters").update(reward_updates).eq("id", character["id"]).execute()
+                        db.table("quests").update(updates).eq("id", quest["id"]).execute()
+                        break
+            except Exception:
+                pass
+
     # Increment turn count
     db.rpc("increment_turn", {"cid": campaign_id}).execute()
 
@@ -239,6 +350,25 @@ async def game_action(
      active_combat, recent_chat, nearby_npcs, active_quests) = await _load_game_state(
         db, campaign_id, user["id"]
     )
+
+    # If combat is active, redirect to combat endpoint
+    if active_combat:
+        return {
+            "narrative": "Вы находитесь в бою! Используйте боевые действия.",
+            "combat_status": "ongoing",
+            "enemies": active_combat.get("enemies", []),
+            "suggestions": ["Атаковать", "Использовать заклинание", "Использовать предмет", "Сбежать"],
+            "dice_rolls": [],
+            "hp_change": 0,
+            "xp_gain": 0,
+            "gold_change": 0,
+            "items_gained": [],
+            "items_lost": [],
+            "location": None,
+            "region": None,
+            "new_npcs": [],
+            "scene_image_url": None,
+        }
 
     # Build context
     system_prompt, chat = await build_dm_context(
@@ -319,7 +449,7 @@ async def rest(
         db.table("characters").update({"hp": new_hp}).eq("id", character["id"]).execute()
         return {"type": "short", "hp_restored": new_hp - character["hp"], "new_hp": new_hp}
     else:
-        # Long rest: full HP, reset spell slots
+        # Long rest: full HP, reset spell slots, clear conditions
         db.table("characters").update({
             "hp": character["max_hp"],
             "spell_slots": character.get("max_spell_slots", {}),
@@ -399,3 +529,34 @@ async def get_chat_history(
     ).data
 
     return messages
+
+
+@router.get("/quests")
+async def get_quests(
+    campaign_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Get all quests for a campaign."""
+    db = get_supabase_client()
+
+    # Verify campaign
+    campaign = (
+        db.table("campaigns")
+        .select("id")
+        .eq("id", campaign_id)
+        .eq("user_id", user["id"])
+        .single()
+        .execute()
+    ).data
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    quests = (
+        db.table("quests")
+        .select("id, title, title_ru, description, description_ru, type, status, objectives, rewards, giver_npc_id, created_at, completed_at")
+        .eq("campaign_id", campaign_id)
+        .order("created_at", desc=False)
+        .execute()
+    ).data
+
+    return quests
