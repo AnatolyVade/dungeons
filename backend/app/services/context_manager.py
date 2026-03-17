@@ -310,6 +310,7 @@ Respond with valid JSON only. No markdown. No backticks.
   "enemies": null,
   "conditions_gained": [],
   "conditions_lost": [],
+  "quest_offered": null,
   "quest_update": null,
   "abilities_gained": [],
   "abilities_lost": [],
@@ -317,6 +318,10 @@ Respond with valid JSON only. No markdown. No backticks.
   "faction_changes": [],
   "suggestions": ["Action 1 in Russian", "Action 2", "Action 3"]
 }}
+
+quest_offered format (when player accepts or discovers a new quest):
+{{"title": "quest title", "title_ru": "название квеста", "description_ru": "описание", "type": "main|side", "objectives": [{{"text": "objective text", "completed": false}}], "rewards": {{"xp": 100, "gold": 50}}}}
+IMPORTANT: When a player accepts a quest from an NPC or discovers a quest through exploration, ALWAYS include quest_offered. Without it the quest won't be tracked!
 
 quest_update format (when player completes a quest objective):
 {{"title": "quest title", "objective_completed": "objective text"}}
@@ -346,7 +351,7 @@ conditions: poisoned, stunned, blinded, frightened, charmed, paralyzed, prone, r
 - NEVER recreate an NPC that already exists (check "NPCs elsewhere" list above). Use existing NPCs by name.
 - When referencing an NPC in narrative, stay consistent with their established personality and role.
 - Consequences matter. The world remembers.
-- Create quest hooks from NPC interactions naturally.
+- Create quest hooks from NPC interactions naturally. When player accepts a quest, ALWAYS include quest_offered in the response so it gets tracked.
 - Vary encounters: combat, puzzles, traps, social, exploration.
 - Reference the story so far for continuity.
 - Apply conditions via conditions_gained when relevant (poison traps, fear effects, etc).

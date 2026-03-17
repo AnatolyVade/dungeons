@@ -320,6 +320,24 @@ async def _apply_state_changes(db, campaign_id: str, character: dict, dm_respons
             "turn_order": [],
         }).execute()
 
+    # Process quest_offered (new quest from DM)
+    quest_offered = dm_response.get("quest_offered")
+    if quest_offered and isinstance(quest_offered, dict) and quest_offered.get("title"):
+        try:
+            db.table("quests").insert({
+                "campaign_id": campaign_id,
+                "title": quest_offered.get("title", "Unknown Quest"),
+                "title_ru": quest_offered.get("title_ru", quest_offered.get("title")),
+                "description": quest_offered.get("description", ""),
+                "description_ru": quest_offered.get("description_ru", ""),
+                "type": quest_offered.get("type", "side"),
+                "objectives": quest_offered.get("objectives", []),
+                "rewards": quest_offered.get("rewards", {}),
+                "status": "active",
+            }).execute()
+        except Exception:
+            pass  # Don't crash if quest insert fails (e.g. duplicate)
+
     # Process quest_update
     quest_update = dm_response.get("quest_update")
     if quest_update and isinstance(quest_update, dict):
